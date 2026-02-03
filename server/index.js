@@ -60,7 +60,7 @@ app.get('/api/orders', async (req, res) => {
     }
   }
 
-  // Calculate dates: Tomorrow and Day After
+  // Calculate dates: Tomorrow and Day After Tomorrow
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
@@ -72,33 +72,18 @@ app.get('/api/orders', async (req, res) => {
   const tomorrowStr = fmt(tomorrow);
   const dayAfterStr = fmt(dayAfter);
 
-  // Domain: Delivery Date (commitment_date or date_deadline) is within range
-  // And state is likely 'sale' or 'done' (not canceled/draft)
-  // We'll search for [tomorrow_start, dayAfter_end]
+  const fields = ['name', 'partner_id', 'expected_date', 'order_line', 'state', 'type_id', 'commitment_date'];
 
-  // Note: Odoo stores dates in UTC. Simple string match on date part might miss if timezone differs.
-  // For MVP, we'll try to match the day string if stored as date, or range if datetime.
-  // Using 'commitment_date' (Delivery Date). 
+  console.log(`Fetching Sale Orders (Types 1, 5) for ${tomorrowStr} and ${dayAfterStr}...`);
 
-  const domain = [
+  // Domain combining type, state, and date filters
+  const finalDomain = [
+    ['type_id', 'in', [1, 5]],
     ['state', 'in', ['sale', 'done']],
-    '|',
+    '&',
     ['commitment_date', '>=', tomorrowStr + ' 00:00:00'],
     ['commitment_date', '<=', dayAfterStr + ' 23:59:59']
   ];
-
-  // Actually, we want specifically Tomorrow OR DayAfter.
-  // Let's just fetch bigger range and filter in JS to be precise with "Next Day" logic
-  // or use stricter domains.
-
-  // Simplify: Fetch everything >= tomorrow 00:00:00 and <= dayAfter 23:59:59
-  const searchDomain = [
-    ['state', 'in', ['sale', 'done']],
-    ['commitment_date', '>=', tomorrowStr + ' 00:00:00'],
-    ['commitment_date', '<=', dayAfterStr + ' 23:59:59']
-  ];
-
-  const fields = ['name', 'partner_id', 'commitment_date', 'order_line', 'state'];
 
   objectClient.methodCall(
     'execute_kw',
@@ -108,7 +93,8 @@ app.get('/api/orders', async (req, res) => {
       ODOO_CONFIG.password,
       'sale.order',
       'search_read',
-      [searchDomain, fields],
+      [finalDomain],
+      { fields: fields, limit: 100 }
     ],
     async (err, orders) => {
       if (err) {
@@ -116,12 +102,13 @@ app.get('/api/orders', async (req, res) => {
         return res.status(500).json({ error: err });
       }
 
-      // Now fetch order lines details for these orders
+      console.log(`Found ${orders.length} orders.`);
+
       // Collect all line IDs
       const lineIds = orders.flatMap(o => o.order_line);
 
       if (lineIds.length === 0) {
-        return res.json({ tomorrow: [], dayAfter: [] });
+        return res.json({ tomorrow: [], dayAfter: [], dates: { tomorrow: tomorrowStr, dayAfter: dayAfterStr } });
       }
 
       // Fetch lines
@@ -133,7 +120,7 @@ app.get('/api/orders', async (req, res) => {
           ODOO_CONFIG.password,
           'sale.order.line',
           'read',
-          [lineIds, ['product_id', 'product_uom_qty', 'product_uom', 'name', 'order_id', 'product_packaging_id', 'product_packaging_qty', 'palet_id', 'palet_qty']],
+          [lineIds, ['product_id', 'product_uom_qty', 'product_uom', 'name', 'order_id', 'product_packaging_id', 'product_packaging_qty', 'palet_id', 'palet_qty', 'display_type']],
         ],
         (err2, lines) => {
           if (err2) {
@@ -147,21 +134,24 @@ app.get('/api/orders', async (req, res) => {
             return { ...order, lines: orderLines };
           });
 
-          // Split into Tomorrow and Day After
+          // Split into Tomorrow and Day After Tomorrow
           const tomorrowOrders = [];
           const dayAfterOrders = [];
 
           ordersWithLines.forEach(o => {
-            const date = o.commitment_date ? o.commitment_date.split(' ')[0] : '';
-            if (date === tomorrowStr) tomorrowOrders.push(o);
-            if (date === dayAfterStr) dayAfterOrders.push(o);
-            // Also handle timezone overlap if needed? For now strict string match on UTC date.
+            // Check commitment_date first (delivery date), fallback to expected_date
+            const dateStr = (o.commitment_date || o.expected_date || '').split(' ')[0];
+
+            if (dateStr === tomorrowStr) tomorrowOrders.push(o);
+            else if (dateStr === dayAfterStr) dayAfterOrders.push(o);
           });
 
+          // Allow separating by type in frontend, but pass them all
           res.json({
             tomorrow: tomorrowOrders,
             dayAfter: dayAfterOrders,
-            dates: { tomorrow: tomorrowStr, dayAfter: dayAfterStr }
+            dates: { tomorrow: tomorrowStr, dayAfter: dayAfterStr },
+            debugAll: ordersWithLines
           });
         }
       );
@@ -170,8 +160,6 @@ app.get('/api/orders', async (req, res) => {
 });
 
 const path = require('path');
-
-// ... existing code ...
 
 const PORT = process.env.PORT || 3000;
 
