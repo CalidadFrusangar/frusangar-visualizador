@@ -49,7 +49,7 @@ Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insi
 Lint: `motion` de framer-motion da falso positivo de `no-unused-vars` (ya pasaba en la v1).
 
 ## Pendientes
-- Antes de desplegar la v2: poner `APP_PIN` en las variables de entorno de Render. La v1 de producción no tiene ningún control de acceso (comprobado el 15/10/2026).
-- Probar push en móvil por HTTPS: ngrok (el zip del repo está vacío, hay que descargarlo de nuevo). iPhone requiere "Añadir a pantalla de inicio".
-- Antes de producción: el disco de Render free es efímero → decidir disco persistente o BD gratuita (Neon/Supabase) y pasar las claves VAPID a variables de entorno.
+- **v2 en producción desde el 15/10/2026** (`main` = `febc0b2`). Servicio Render `srv-d5rod2buibrs73cr9f00`. En Render están puestas `APP_PIN`, `VAPID_*`, `SESSION_SECRET` y `ODOO_ACK_NOTES=true`. Rollback a la v1: commit `7d806d6`.
+- Probar push en móvil en https://frusangar-visualizador.onrender.com (ya no hace falta ngrok). iPhone requiere "Añadir a pantalla de inicio".
+- Antes de producción: el disco de Render free es efímero → decidir disco persistente o BD gratuita (Neon/Supabase) (las claves VAPID ya están en variables de entorno). Plan free: se duerme tras 15 min sin tráfico.
 - Mejorar la acción automatizada de WhatsApp en Odoo (prompt para otro agente en `docs/prompt-agente-odoo.md`). No desactivar la acción antigua hasta validar la v2 en planta.
