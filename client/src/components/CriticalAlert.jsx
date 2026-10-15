@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
+import OdooLink from './OdooLink';
 
 // Full-screen alert for critical changes (for the production-line TV).
 // It stays (and repeats its sound) until someone presses "Visto".
@@ -37,6 +38,9 @@ const CriticalAlert = ({ event, onClose, onOpen }) => {
                             </ul>
                             <div className="flex flex-wrap items-center gap-3 justify-end mt-8">
                                 <span className="mr-auto text-xs text-stone-400">Se repite cada 30 s hasta pulsar «Visto»</span>
+                                {event.orderId && !event.test && (
+                                    <OdooLink orderId={event.orderId} label="Abrir en Odoo" className="px-4 py-3 rounded-xl text-sm" />
+                                )}
                                 <button onClick={onClose} className="px-6 py-3 rounded-xl bg-stone-800 text-white text-lg font-black">✔ Visto</button>
                                 {event.orderId && (
                                     <button onClick={() => onOpen(event.orderId)} className="px-5 py-3 rounded-xl bg-red-600 text-white font-bold">Ver pedido</button>

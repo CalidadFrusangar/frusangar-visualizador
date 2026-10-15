@@ -10,6 +10,7 @@ import NotificationsButton from './components/NotificationsButton';
 import Login from './components/Login';
 import DemoAlerts from './components/DemoAlerts';
 import EmployeePicker from './components/EmployeePicker';
+import OdooLink from './components/OdooLink';
 import { demoEvent, DEMO_COUNT } from './demoAlerts';
 import logo from './assets/logo.png';
 
@@ -56,6 +57,8 @@ function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [tab, setTab] = useState('today');
   const [focusOrderId, setFocusOrderId] = useState(initialFocus);
+  const [focusSeq, setFocusSeq] = useState(0); // bumps on every click so the same order scrolls again
+  const [missingOrder, setMissingOrder] = useState(null); // { orderId, orderName } not in today..day after
   const [alertEvent, setAlertEvent] = useState(null);
   const [ackTarget, setAckTarget] = useState(null); // { event, openOrder } while choosing who saw it
   const [soundOn, setSoundOn] = useState(() => readFlag('sound'));
@@ -203,16 +206,26 @@ function Dashboard() {
     try { localStorage.setItem('dayFilter', key); } catch { /* ignore */ }
   }, []);
 
-  const selectOrder = useCallback((orderId) => {
+  const selectOrder = useCallback((orderId, orderName) => {
     stopSpeaking();
     setAlertEvent(null);
-    setFocusOrderId(orderId);
     const day = data && DAYS.find(d => data.orders[d.key]?.some(o => o.id === orderId));
-    if (day) {
-      setTab(day.key);
-      setDayFilter(f => (f === 'all' ? f : day.key));
+    if (!day) {
+      setMissingOrder(orderId ? { orderId, orderName } : null);
+      return;
     }
+    setMissingOrder(null);
+    setFocusOrderId(orderId);
+    setFocusSeq(n => n + 1);
+    setTab(day.key);
+    setDayFilter(f => (f === 'all' ? f : day.key));
   }, [data]);
+
+  useEffect(() => {
+    if (!missingOrder) return;
+    const t = setTimeout(() => setMissingOrder(null), 8000);
+    return () => clearTimeout(t);
+  }, [missingOrder]);
 
   const closeAlert = useCallback(() => {
     stopSpeaking();
@@ -236,7 +249,7 @@ function Dashboard() {
     }
     setAckTarget(null);
     if (alertEvent?.id === event.id) closeAlert();
-    if (openOrder && event.orderId) selectOrder(event.orderId);
+    if (openOrder && event.orderId) selectOrder(event.orderId, event.orderName);
   }, [ackTarget, alertEvent, closeAlert, selectOrder]);
 
   const ordersOf = (key) => data?.orders?.[key] || [];
@@ -363,6 +376,7 @@ function Dashboard() {
             accent={d.accent}
             loading={loading && !data}
             focusOrderId={focusOrderId}
+            focusSeq={focusSeq}
             wide={dayFilter === d.key}
             className={`${tab === d.key ? 'flex' : 'hidden'} ${dayFilter === 'all' ? 'lg:flex' : dayFilter === d.key ? 'lg:flex lg:col-span-3' : 'lg:hidden'}`}
           />
@@ -376,6 +390,16 @@ function Dashboard() {
       </main>
 
       <CriticalAlert event={alertEvent} onClose={() => requestAck(alertEvent)} onOpen={() => requestAck(alertEvent, true)} />
+
+      {missingOrder && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-md bg-stone-800 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3 text-sm">
+          <span className="flex-1">
+            <b>{missingOrder.orderName || 'Este pedido'}</b> ya no está en Hoy, Mañana ni Pasado.
+          </span>
+          <OdooLink orderId={missingOrder.orderId} label="Abrir en Odoo" className="!text-xs" />
+          <button onClick={() => setMissingOrder(null)} className="text-stone-400 hover:text-white font-bold" title="Cerrar">✕</button>
+        </div>
+      )}
 
       <EmployeePicker event={ackTarget?.event} onPick={confirmAck} onCancel={() => setAckTarget(null)} />
 

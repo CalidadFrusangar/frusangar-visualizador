@@ -10,6 +10,7 @@ const { PRIORITY_RANK } = require('./diff');
 const auth = require('./auth');
 const { fetchEmployees } = require('./employees');
 const odooNotes = require('./odooNotes');
+const { ODOO_URL } = require('./odoo');
 
 const app = express();
 // Render (and ngrok) sit in front as a proxy: needed for req.secure and the client IP
@@ -73,6 +74,13 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/events', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   res.json(store.state.events.slice(0, limit));
+});
+
+// Opens the sale order form in Odoo (link from cards and alerts; Odoo asks for its own login)
+app.get('/api/odoo/sale-order/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0 || !ODOO_URL) return res.status(400).send('Pedido no válido');
+  res.redirect(`${ODOO_URL.replace(/\/+$/, '')}/web#id=${id}&model=sale.order&view_type=form`);
 });
 
 app.get('/api/employees', async (req, res) => {

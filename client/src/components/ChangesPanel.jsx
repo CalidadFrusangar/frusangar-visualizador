@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Bell } from 'lucide-react';
 import { PRIORITY_STYLE, clockTime } from '../priority';
+import OdooLink from './OdooLink';
 
 const FILTERS = [
     { key: 'all', label: 'Todos' },
@@ -46,8 +47,9 @@ const ChangesPanel = ({ events, onSelectOrder, onAck, className = '' }) => {
                             key={e.id}
                             role="button"
                             tabIndex={0}
-                            onClick={() => onSelectOrder(e.orderId)}
-                            onKeyDown={(ev) => ev.key === 'Enter' && onSelectOrder(e.orderId)}
+                            title="Ver el pedido en el visualizador"
+                            onClick={() => onSelectOrder(e.orderId, e.orderName)}
+                            onKeyDown={(ev) => ev.key === 'Enter' && onSelectOrder(e.orderId, e.orderName)}
                             className={`w-full text-left rounded-lg border p-2.5 cursor-pointer transition-transform active:scale-[0.98] hover:shadow-md ${style.soft}`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
@@ -67,18 +69,24 @@ const ChangesPanel = ({ events, onSelectOrder, onAck, className = '' }) => {
                                 {e.changes.slice(0, 5).map((c, i) => <li key={i}>{c.text}</li>)}
                                 {e.changes.length > 5 && <li className="opacity-70">… y {e.changes.length - 5} cambios más</li>}
                             </ul>
-                            {needsAck(e) && (e.ack ? (
-                                <div className="mt-2 text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                                    ✔ Visto por {e.ack.name} · {clockTime(e.ack.at)}
-                                </div>
-                            ) : (
-                                <button
-                                    onClick={(ev) => { ev.stopPropagation(); onAck(e); }}
-                                    className="mt-2 px-2.5 py-1 rounded-md bg-stone-800 text-white text-[11px] font-bold active:scale-95"
-                                >
-                                    ✔ Marcar visto
-                                </button>
-                            ))}
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {needsAck(e) && (e.ack ? (
+                                    <span className="text-[11px] font-bold text-emerald-700">
+                                        ✔ Visto por {e.ack.name} · {clockTime(e.ack.at)}
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={(ev) => { ev.stopPropagation(); onAck(e); }}
+                                        className="px-2.5 py-1 rounded-md bg-stone-800 text-white text-[11px] font-bold active:scale-95"
+                                    >
+                                        ✔ Marcar visto
+                                    </button>
+                                ))}
+                                <span className="ml-auto flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold opacity-70">Ver pedido →</span>
+                                    {!e.test && <OdooLink orderId={e.orderId} />}
+                                </span>
+                            </div>
                         </div>
                     );
                 })}

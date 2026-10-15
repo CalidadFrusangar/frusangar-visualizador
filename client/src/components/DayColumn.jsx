@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Calendar, CheckCircle2 } from 'lucide-react';
 import OrderCard from './OrderCard';
 import ProductSummary from './ProductSummary';
@@ -29,7 +29,7 @@ const VIEWS = [{ key: 'orders', label: 'Pedidos' }, { key: 'products', label: 'P
 
 const formatDate = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
 
-const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = false, className = '' }) => {
+const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSeq = 0, wide = false, className = '' }) => {
     const active = orders.filter(o => o.state !== 'cancel');
     const done = active.filter(o => o.pickingStatus === 'validado').length;
     const progress = active.length ? Math.round((done / active.length) * 100) : 0;
@@ -39,6 +39,14 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = 
     const pendingBultos = sumLines(active.filter(o => o.pickingStatus !== 'validado'), 'product_packaging_qty');
     const totalPalets = sumLines(active, 'palet_qty');
     const [view, setView] = useState('orders');
+
+    // Opening an order from an alert shows the order list, not the product summary
+    const hasFocused = focusOrderId != null && orders.some(o => o.id === focusOrderId);
+    useEffect(() => {
+        if (!hasFocused) return;
+        const t = setTimeout(() => setView('orders'), 0);
+        return () => clearTimeout(t);
+    }, [hasFocused, focusSeq]);
 
     return (
         <section className={`flex-col min-w-0 ${className}`}>
@@ -115,6 +123,7 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = 
                                             order={order}
                                             dimmed={order.pickingStatus === 'validado'}
                                             focused={order.id === focusOrderId}
+                                            focusSeq={focusSeq}
                                         />
                                     ))}
                                 </div>

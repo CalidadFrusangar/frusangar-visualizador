@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Package, Box, AlertTriangle, Loader2 } from 'lucide-react';
 import { PRIORITY_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo } from '../priority';
+import OdooLink from './OdooLink';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
 
@@ -34,14 +35,20 @@ const LINE_ROW_STYLE = {
     DISMINUCION: 'bg-orange-50',
 };
 
-const OrderCard = ({ order, dimmed = false, focused = false }) => {
+const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => {
     const [userToggled, setUserToggled] = useState(null);
     const expanded = userToggled ?? focused;
     const ref = useRef(null);
 
+    // focusSeq changes on every click on an alert, so the same order scrolls into view again
     useEffect(() => {
-        if (focused) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, [focused]);
+        if (!focused) return;
+        const t = setTimeout(() => {
+            setUserToggled(null);
+            ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 80);
+        return () => clearTimeout(t);
+    }, [focused, focusSeq]);
 
     const productLines = order.lines?.filter(isProductLine) || [];
     const totalBultos = productLines.reduce((sum, l) => sum + (l.product_packaging_qty || 0), 0);
@@ -103,6 +110,7 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-frusangar-light text-frusangar-dark tracking-wide uppercase border border-frusangar-green/10">
                                 {orderRef}
                             </span>
+                            <OdooLink orderId={order.id} />
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${picking.className}`}>
                                 <span>{picking.icon}</span>{picking.label}
                             </span>
