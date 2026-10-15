@@ -19,22 +19,37 @@ function summarizeProducts(orders) {
                     key, ref, packaging,
                     name: name.split('] ')[1] || name,
                     uom: Array.isArray(l.product_uom) ? l.product_uom[1] : '',
-                    bultos: 0, pendingBultos: 0, qty: 0, palets: 0, orders: new Set(),
+                    bultos: 0, pendingBultos: 0, qty: 0, kg: 0, pendingKg: 0, kgMissing: false, palets: 0, orders: new Set(),
                 });
             }
             const r = rows.get(key);
             r.bultos += l.product_packaging_qty || 0;
             r.qty += l.product_uom_qty || 0;
             r.palets += l.palet_qty || 0;
-            if (pending) r.pendingBultos += l.product_packaging_qty || 0;
+            if (l.kg == null) r.kgMissing = true;
+            else r.kg += l.kg;
+            if (pending) {
+                r.pendingBultos += l.product_packaging_qty || 0;
+                r.pendingKg += l.kg || 0;
+            }
             r.orders.add(o.id);
         }
     }
     return [...rows.values()].sort((a, b) => b.bultos - a.bultos || b.qty - a.qty);
 }
 
+// Kilos come from the product's «Peso» field in Odoo (kg per unit); "?" when a product has no weight
+const kgCell = (kg, missing) => (missing && !kg ? '?' : `${fmt(kg)} kg${missing ? ' + ?' : ''}`);
+
 const ProductSummary = ({ orders }) => {
     const rows = summarizeProducts(orders);
+    const total = rows.reduce((t, r) => ({
+        bultos: t.bultos + r.bultos,
+        pendingBultos: t.pendingBultos + r.pendingBultos,
+        kg: t.kg + r.kg,
+        pendingKg: t.pendingKg + r.pendingKg,
+        kgMissing: t.kgMissing || r.kgMissing,
+    }), { bultos: 0, pendingBultos: 0, kg: 0, pendingKg: 0, kgMissing: false });
     if (rows.length === 0) {
         return (
             <div className="bg-white/50 p-10 rounded-xl text-center border-dashed border-2 border-stone-200">
@@ -53,6 +68,7 @@ const ProductSummary = ({ orders }) => {
                             <th className="py-3 px-2 text-right">Bultos</th>
                             <th className="py-3 px-2 text-right" title="Bultos de pedidos con el albarán aún sin validar">Por preparar</th>
                             <th className="py-3 px-2 text-right">Cantidad</th>
+                            <th className="py-3 px-2 text-right" title="Cantidad × peso del producto en Odoo. Entre paréntesis, kg por preparar">Kg</th>
                             <th className="py-3 px-4 text-right">Pedidos</th>
                         </tr>
                     </thead>
@@ -72,10 +88,31 @@ const ProductSummary = ({ orders }) => {
                                     {r.bultos ? (r.pendingBultos ? fmt(r.pendingBultos, 1) : '✔') : '-'}
                                 </td>
                                 <td className="py-2.5 px-2 text-right text-stone-600 whitespace-nowrap">{fmt(r.qty, 2)} {r.uom}</td>
+                                <td className="py-2.5 px-2 text-right whitespace-nowrap" title={r.kgMissing ? 'Algún producto no tiene el peso puesto en Odoo' : undefined}>
+                                    <div className="font-bold text-stone-800">{kgCell(r.kg, r.kgMissing)}</div>
+                                    {r.pendingKg > 0 && r.pendingKg !== r.kg && (
+                                        <div className="text-[10px] font-bold text-frusangar-orange">({fmt(r.pendingKg)} por prep.)</div>
+                                    )}
+                                </td>
                                 <td className="py-2.5 px-4 text-right text-stone-500">{r.orders.size}</td>
                             </tr>
                         ))}
                     </tbody>
+                    <tfoot>
+                        <tr className="border-t-2 border-stone-200 bg-stone-50 font-black text-stone-800">
+                            <td className="py-2.5 px-4 uppercase text-[11px] tracking-wide">Total</td>
+                            <td className="py-2.5 px-2 text-right text-sm text-frusangar-dark">{fmt(total.bultos, 1)}</td>
+                            <td className={`py-2.5 px-2 text-right ${total.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>{total.pendingBultos ? fmt(total.pendingBultos, 1) : '✔'}</td>
+                            <td className="py-2.5 px-2"></td>
+                            <td className="py-2.5 px-2 text-right whitespace-nowrap">
+                                <div className="text-sm">{kgCell(total.kg, total.kgMissing)}</div>
+                                {total.pendingKg > 0 && total.pendingKg !== total.kg && (
+                                    <div className="text-[10px] text-frusangar-orange">({fmt(total.pendingKg)} por prep.)</div>
+                                )}
+                            </td>
+                            <td className="py-2.5 px-4"></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
         </div>

@@ -12,6 +12,31 @@ const LINE_FIELDS = ['product_id', 'product_uom_qty', 'product_uom', 'name', 'or
 const PICKING_FIELDS = ['name', 'state', 'picking_type_code', 'date_done', 'sale_id',
   'x_cajas_declaradas', 'x_cajas_declaracion', 'write_date'];
 
+// Product weight (field «Peso», kg per unit of the product's UoM), cached 10 min
+const WEIGHT_TTL_MS = 10 * 60 * 1000;
+const weightCache = new Map(); // productId -> { weight, uomId, at }
+
+async function productWeights(productIds, now = Date.now()) {
+  const missing = productIds.filter(id => !(weightCache.get(id)?.at > now - WEIGHT_TTL_MS));
+  if (missing.length) {
+    const products = await executeKw('product.product', 'read', [missing], { fields: ['weight', 'uom_id'], context: { active_test: false } });
+    for (const p of products) weightCache.set(p.id, { weight: Number(p.weight) || 0, uomId: p.uom_id?.[0], at: now });
+  }
+  return weightCache;
+}
+
+// Kilos of a line: qty × product weight when the line uses the product's UoM; lines in Kg are already kilos.
+// null when unknown (no weight, or a different UoM)
+function lineKg(line, weights) {
+  if (line.display_type || !Array.isArray(line.product_id)) return null;
+  const qty = Number(line.product_uom_qty) || 0;
+  const uomName = Array.isArray(line.product_uom) ? line.product_uom[1] : '';
+  if (/^kg$/i.test(uomName.trim())) return qty;
+  const w = weights.get(line.product_id[0]);
+  if (!w || !w.weight || (w.uomId && Array.isArray(line.product_uom) && line.product_uom[0] !== w.uomId)) return null;
+  return Math.round(qty * w.weight * 100) / 100;
+}
+
 // Validado: all outgoing pickings done; Parcial: some done; Pendiente: none done
 function pickingStatus(pickings) {
   const outgoing = pickings.filter(p => p.picking_type_code === 'outgoing' && p.state !== 'cancel');
@@ -45,6 +70,10 @@ async function fetchOrdersByDay(now = new Date()) {
     lineIds.length ? executeKw('sale.order.line', 'read', [lineIds, LINE_FIELDS]) : [],
     pickingIds.length ? executeKw('stock.picking', 'read', [pickingIds, PICKING_FIELDS]) : [],
   ]);
+
+  const productIds = [...new Set(lines.filter(l => Array.isArray(l.product_id)).map(l => l.product_id[0]))];
+  const weights = productIds.length ? await productWeights(productIds) : new Map();
+  for (const l of lines) l.kg = lineKg(l, weights);
 
   const linesByOrder = new Map();
   for (const l of lines) {
@@ -104,4 +133,4 @@ async function fetchOrderStatus(ids) {
   });
 }
 
-module.exports = { fetchOrdersByDay, fetchOrderStatus, pickingStatus, ORDER_TYPES };
+module.exports = { fetchOrdersByDay, fetchOrderStatus, pickingStatus, lineKg, ORDER_TYPES };

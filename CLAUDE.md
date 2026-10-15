@@ -44,7 +44,7 @@ En Odoo, una acción automatizada genera un texto de WhatsApp al validar pedido/
 - `employees.js`: empleados de la planta = `hr.employee` con `work_location_id` = 1 (Navalcarnero, 22 el 15/10/2026; `EMPLOYEE_LOCATION_ID`), caché 10 min. «Visto» en avisos crítico/alto guarda `event.ack = { employeeId, name, at }` (el primero que lo marca); la alerta crítica se cierra en todas las pantallas.
 - Rutas: `GET /api/orders`, `GET /api/events`, `GET /api/employees`, `POST /api/events/:id/ack`, `GET /api/odoo/sale-order/:id` (redirige al formulario del pedido en Odoo), `/api/push/{public-key,subscribe,unsubscribe,test}`.
 
-Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insignia de albarán, banner "Modificado", líneas antes→después y eliminadas), `ProductSummary` (vista «Productos» del día: bultos por producto y empaquetado), `Login` (PIN), `ChangesPanel`, `CriticalAlert` (pantalla completa + sonido), `NotificationsButton`, `push.js`, `public/sw.js` + `manifest.webmanifest`. `?order=<id>` abre y resalta un pedido.
+Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insignia de albarán, banner "Modificado", líneas antes→después y eliminadas), `ProductSummary` (vista «Productos» del día: bultos, cantidad y kg por producto y empaquetado, con total; kg = cantidad × «Peso» del producto en Odoo, calculado en `fetchOrders.js` como `line.kg`), `Login` (PIN), `ChangesPanel`, `CriticalAlert` (pantalla completa + sonido), `NotificationsButton`, `push.js`, `public/sw.js` + `manifest.webmanifest`. `?order=<id>` abre y resalta un pedido.
 
 Lint: `motion` de framer-motion da falso positivo de `no-unused-vars` (ya pasaba en la v1).
 
