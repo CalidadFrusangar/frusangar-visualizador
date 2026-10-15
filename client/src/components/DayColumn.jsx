@@ -20,43 +20,45 @@ const SECTIONS = [
     { typeId: 5, title: 'Mercamadrid Interno', colorClass: 'text-blue-700' },
 ];
 
-const formatDate = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+const formatDate = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
 
-const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, className = '' }) => {
+const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = false, className = '' }) => {
     const active = orders.filter(o => o.state !== 'cancel');
     const done = active.filter(o => o.pickingStatus === 'validado').length;
     const progress = active.length ? Math.round((done / active.length) * 100) : 0;
+    const withBoxes = active.filter(o => ['declarada', 'sin_declarar'].includes(o.boxes?.status));
+    const undeclared = withBoxes.filter(o => o.boxes.status === 'sin_declarar').length;
 
     return (
-        <section className={`flex-col bg-white/60 backdrop-blur-sm rounded-3xl border border-white shadow-xl shadow-gray-200/50 lg:h-full overflow-hidden relative ${className}`}>
-            <div className={`absolute top-0 w-full h-2 ${accent.bar}`}></div>
-            <div className="p-5 pb-2 pt-6">
-                <div className="flex justify-between items-end border-b border-gray-100 pb-3">
-                    <div>
-                        <h2 className="text-3xl font-black text-gray-800 tracking-tight">{title}</h2>
-                        <p className={`font-bold text-base capitalize flex items-center mt-1 ${accent.text}`}>
-                            <Calendar size={16} className="mr-2" />
-                            {date ? formatDate(date) : 'Cargando...'}
-                        </p>
-                    </div>
-                    <span className={`font-bold px-3 py-1 rounded-full text-sm ${accent.chip}`}>
-                        {active.length} Envíos
+        <section className={`flex-col min-w-0 ${className}`}>
+            <div className={`mb-6 pb-2 border-b-2 ${accent.border}`}>
+                <div className="flex items-center">
+                    <Calendar className={`mr-2 shrink-0 ${accent.icon}`} size={24} />
+                    <h2 className="text-2xl font-bold text-frusangar-dark">{title}</h2>
+                    <span className={`ml-auto text-sm font-bold text-frusangar-dark bg-white border px-3 py-1 rounded-full shadow-sm capitalize ${accent.chip}`}>
+                        {date ? formatDate(date) : 'Cargando...'}
                     </span>
                 </div>
                 {active.length > 0 && (
-                    <div className="mt-3">
-                        <div className="flex justify-between text-xs font-bold text-stone-500 mb-1">
-                            <span className="flex items-center gap-1"><CheckCircle2 size={13} className="text-emerald-600" /> Albaranes hechos</span>
-                            <span>{done} de {active.length}</span>
-                        </div>
-                        <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+                    <div className="mt-2 flex items-center gap-2 text-xs font-medium text-stone-500">
+                        <CheckCircle2 size={13} className="text-emerald-600 shrink-0" />
+                        <span>Albaranes {done}/{active.length}</span>
+                        <div className="flex-1 h-1.5 bg-stone-200 rounded-full overflow-hidden">
                             <div className="h-full bg-emerald-500 transition-all duration-700" style={{ width: `${progress}%` }}></div>
                         </div>
+                        {withBoxes.length > 0 && (
+                            <span
+                                title="Albaranes hechos con caja retornable (Euro Pool / IFCO)"
+                                className={`shrink-0 px-2 py-0.5 rounded-full font-bold ${undeclared ? 'bg-red-600 text-white' : 'bg-emerald-100 text-emerald-800'}`}
+                            >
+                                📦 {undeclared ? `${undeclared} sin declarar` : `${withBoxes.length}/${withBoxes.length} declaradas`}
+                            </span>
+                        )}
                     </div>
                 )}
             </div>
 
-            <div className="flex-1 lg:overflow-y-auto p-5 pt-3 custom-scrollbar pb-10">
+            <div>
                 {loading && orders.length === 0 ? (
                     <div className="animate-pulse space-y-4">
                         {[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-xl shadow-sm border border-stone-100"></div>)}
@@ -75,14 +77,16 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, classNa
                                     {section.title}
                                     <span className="ml-2 text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">{list.length}</span>
                                 </h4>
-                                {list.map(order => (
-                                    <OrderCard
-                                        key={order.id}
-                                        order={order}
-                                        dimmed={order.pickingStatus === 'validado'}
-                                        focused={order.id === focusOrderId}
-                                    />
-                                ))}
+                                <div className={wide ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-6 items-start' : ''}>
+                                    {list.map(order => (
+                                        <OrderCard
+                                            key={order.id}
+                                            order={order}
+                                            dimmed={order.pickingStatus === 'validado'}
+                                            focused={order.id === focusOrderId}
+                                        />
+                                    ))}
+                                </div>
                             </div>
                         );
                     })

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Package, Box, AlertTriangle, Loader2 } from 'lucide-react';
-import { PRIORITY_STYLE, PICKING_STYLE, maxPriority, timeAgo } from '../priority';
+import { PRIORITY_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo } from '../priority';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
 
@@ -55,6 +55,7 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
     const changePriority = relevantEvents.length ? maxPriority(relevantEvents) : null;
     const changeStyle = changePriority ? PRIORITY_STYLE[changePriority] : null;
     const picking = PICKING_STYLE[order.pickingStatus] || PICKING_STYLE.pendiente;
+    const box = order.boxes && !cancelled ? BOX_STYLE[order.boxes.status] : null;
     const { byLine, removed } = lineChanges(order);
 
     const deliveryTime = new Date(order.deliveryDate).toLocaleString('es-ES', {
@@ -71,7 +72,7 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
             className={`group bg-white rounded-xl shadow-card hover:shadow-card-hover border border-stone-100/80 transition-all duration-300 overflow-hidden mb-4
                 ${changeStyle ? `ring-2 ${changeStyle.ring}` : expanded ? 'ring-2 ring-frusangar-green/20' : ''}
                 ${focused ? 'ring-4 ring-frusangar-green' : ''}
-                ${dimmed || cancelled ? 'opacity-60 hover:opacity-100' : ''}`}
+                ${cancelled ? 'opacity-60 hover:opacity-100' : dimmed ? 'bg-stone-50/60' : ''}`}
         >
             {/* Change banner */}
             {changeStyle && !cancelled && (
@@ -103,6 +104,12 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${picking.className}`}>
                                 <span>{picking.icon}</span>{picking.label}
                             </span>
+                            {box && (
+                                <span title={boxTitle(order.boxes)} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${box.className}`}>
+                                    <span>{box.icon}</span>
+                                    {order.boxes.status === 'sin_declarar' && order.boxes.boxes.length ? `${order.boxes.boxes.join(' / ')} ${box.label}` : box.label}
+                                </span>
+                            )}
                             {order.changePending && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700" title="Se está modificando en Odoo">
                                     <Loader2 size={11} className="animate-spin" /> editándose
@@ -111,7 +118,7 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
                             <span className="text-xs text-stone-400 font-medium">{deliveryTime}</span>
                         </div>
 
-                        <h3 className={`text-lg font-display font-bold text-frusangar-text truncate pr-4 group-hover:text-frusangar-green transition-colors ${cancelled ? 'line-through' : ''}`}>
+                        <h3 className={`text-lg font-display font-bold text-frusangar-text line-clamp-2 leading-snug pr-4 group-hover:text-frusangar-green transition-colors ${cancelled ? 'line-through' : ''}`}>
                             {customerName}
                         </h3>
 
@@ -276,6 +283,7 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
                             {/* Footer inside expanded */}
                             <div className="px-6 py-3 bg-stone-50 border-t border-stone-200/60 flex justify-between items-center text-[10px] text-frusangar-muted">
                                 <span>
+                                    {order.boxes?.detail?.length > 0 && <span className="block font-semibold text-emerald-700">📦 {order.boxes.detail.join(' · ')}</span>}
                                     {order.pickings?.length
                                         ? order.pickings.map(p => `${p.name} (${p.state === 'done' ? 'hecho' : 'pendiente'})`).join(' · ')
                                         : 'Sin albarán'}

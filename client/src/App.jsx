@@ -12,15 +12,21 @@ const REFRESH_MS = 20_000;
 const FOCUS_MS = 10_000;
 
 const DAYS = [
-  { key: 'today', title: 'Hoy', accent: { bar: 'bg-gradient-to-r from-red-500 to-frusangar-orange', text: 'text-frusangar-orange', chip: 'bg-frusangar-orange-light text-frusangar-orange' } },
-  { key: 'tomorrow', title: 'Mañana', accent: { bar: 'bg-gradient-to-r from-frusangar-green to-frusangar-dark', text: 'text-frusangar-dark', chip: 'bg-frusangar-light text-frusangar-dark border border-frusangar-green/20' } },
-  { key: 'dayAfter', title: 'Pasado Mañana', accent: { bar: 'bg-gradient-to-r from-amber-400 to-orange-400', text: 'text-amber-600', chip: 'bg-amber-100 text-amber-700' } },
+  { key: 'today', title: 'Hoy', accent: { border: 'border-red-400/40', icon: 'text-red-500', chip: 'border-red-200' } },
+  { key: 'tomorrow', title: 'Mañana', accent: { border: 'border-frusangar-green/30', icon: 'text-frusangar-green', chip: 'border-frusangar-green/20' } },
+  { key: 'dayAfter', title: 'Pasado Mañana', accent: { border: 'border-frusangar-orange/30', icon: 'text-frusangar-orange', chip: 'border-frusangar-orange/20' } },
 ];
 
 const TABS = [...DAYS.map(d => ({ key: d.key, label: d.title === 'Pasado Mañana' ? 'Pasado' : d.title })), { key: 'events', label: 'Avisos' }];
 
 const readSound = () => {
   try { return localStorage.getItem('sound') === 'on'; } catch { return false; }
+};
+
+const DAY_FILTERS = [{ key: 'all', label: 'Todos' }, ...DAYS.map(d => ({ key: d.key, label: `Solo ${d.title.toLowerCase()}` }))];
+
+const readDayFilter = () => {
+  try { return DAY_FILTERS.some(f => f.key === localStorage.getItem('dayFilter')) ? localStorage.getItem('dayFilter') : 'all'; } catch { return 'all'; }
 };
 
 const initialFocus = () => Number(new URLSearchParams(window.location.search).get('order')) || null;
@@ -35,6 +41,7 @@ function App() {
   const [focusOrderId, setFocusOrderId] = useState(initialFocus);
   const [alertEvent, setAlertEvent] = useState(null);
   const [soundOn, setSoundOn] = useState(readSound);
+  const [dayFilter, setDayFilter] = useState(readDayFilter);
 
   const seenEvents = useRef(null);
   const soundRef = useRef(soundOn);
@@ -99,11 +106,19 @@ function App() {
     if (next) { unlockAudio(); beep(1); }
   };
 
+  const chooseDayFilter = useCallback((key) => {
+    setDayFilter(key);
+    try { localStorage.setItem('dayFilter', key); } catch { /* ignore */ }
+  }, []);
+
   const selectOrder = useCallback((orderId) => {
     setAlertEvent(null);
     setFocusOrderId(orderId);
     const day = data && DAYS.find(d => data.orders[d.key]?.some(o => o.id === orderId));
-    if (day) setTab(day.key);
+    if (day) {
+      setTab(day.key);
+      setDayFilter(f => (f === 'all' ? f : day.key));
+    }
   }, [data]);
 
   const closeAlert = useCallback(() => setAlertEvent(null), []);
@@ -114,36 +129,31 @@ function App() {
   const importantEvents = events.filter(e => (e.priority === 'critico' || e.priority === 'alto') && Date.now() - new Date(e.ts) < 3 * 3600_000).length;
 
   return (
-    <div className="min-h-screen lg:h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100 text-gray-900">
+    <div className="min-h-screen bg-frusangar-light text-stone-800 font-sans selection:bg-frusangar-green selection:text-white">
       {/* Header */}
-      <header className="bg-white/90 backdrop-blur-md sticky top-0 z-30 border-b border-gray-200/50 shadow-sm">
-        <div className="px-4 lg:px-6 py-3 flex justify-between items-center gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <img src={logo} alt="Frusangar" className="h-9 lg:h-10 w-auto object-contain" />
-            <div className="hidden sm:block h-8 w-px bg-stone-200"></div>
-            <span className="hidden sm:block text-xs font-semibold tracking-widest text-gray-400 uppercase">
-              Pedidos Navalcarnero
-            </span>
+      <header className="bg-white/95 backdrop-blur-md shadow-sm sticky top-0 z-30 border-b border-stone-200/60">
+        <div className="px-4 sm:px-6 lg:px-8 h-16 lg:h-20 flex justify-between items-center gap-3">
+          <div className="flex items-center min-w-0">
+            <div className="mr-4 flex-shrink-0">
+              <img src={logo} alt="Frusangar Logo" className="h-9 lg:h-10 w-auto object-contain drop-shadow-sm" />
+            </div>
+            <div className="hidden md:block h-8 w-px bg-stone-200 mx-4"></div>
+            <h1 className="hidden sm:block text-xl font-display font-bold tracking-tight text-frusangar-text truncate">
+              Visualizador de Pedidos
+            </h1>
           </div>
 
-          <div className="flex items-center gap-2 lg:gap-4">
-            <div className="hidden md:flex bg-white rounded-full px-4 py-2 border border-gray-100 shadow-sm gap-5">
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-gray-400">Hoy por hacer</span>
-                <span className="text-sm font-black leading-none text-frusangar-orange">{pendingToday}</span>
-              </div>
-              <div className="w-px bg-gray-200"></div>
-              <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-gray-400">Última actualización</span>
-                <span className="text-sm font-bold leading-none">
-                  {lastUpdated ? lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
-                </span>
-              </div>
-            </div>
-
+          <div className="flex items-center gap-2 lg:gap-3">
+            <span className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-stone-50 rounded-lg border border-stone-200/50 text-xs font-medium text-stone-500">
+              Hoy por hacer: <span className="font-bold text-frusangar-orange">{pendingToday}</span>
+            </span>
+            <span className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-stone-50 rounded-lg border border-stone-200/50 text-xs font-medium text-stone-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-frusangar-green animate-pulse"></span>
+              Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString('es-ES') : '—'}
+            </span>
             <button
               onClick={toggleSound}
-              className="p-3 bg-white text-gray-500 hover:text-frusangar-dark rounded-full shadow-sm border border-gray-100 active:scale-95"
+              className="p-2.5 rounded-xl bg-white text-stone-500 hover:text-frusangar-dark border border-stone-200 active:scale-95"
               title={soundOn ? 'Sonido de avisos activado' : 'Activar sonido de avisos (pantalla de planta)'}
             >
               {soundOn ? <Volume2 size={20} className="text-frusangar-green" /> : <VolumeX size={20} />}
@@ -151,17 +161,17 @@ function App() {
             <NotificationsButton />
             <button
               onClick={load}
-              className="p-3 bg-white text-gray-500 hover:text-frusangar-dark rounded-full shadow-sm border border-gray-100 active:scale-95"
               disabled={loading}
-              title="Recargar datos"
+              className="p-2.5 rounded-xl bg-frusangar-green hover:bg-frusangar-dark text-white shadow-lg shadow-frusangar-green/20 transition-all active:scale-95 disabled:opacity-50 disabled:shadow-none"
+              title="Actualizar pedidos"
             >
-              <RefreshCw size={20} className={loading ? 'animate-spin text-frusangar-green' : ''} />
+              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
 
         {/* Mobile tabs */}
-        <nav className="lg:hidden flex border-t border-gray-100 bg-white">
+        <nav className="lg:hidden flex border-t border-stone-100 bg-white">
           {TABS.map(t => {
             const count = t.key === 'events' ? importantEvents : ordersOf(t.key).filter(o => o.state !== 'cancel').length;
             return (
@@ -180,15 +190,28 @@ function App() {
         </nav>
       </header>
 
+      {/* Day filter (desktop / TV) */}
+      <div className="hidden lg:flex items-center gap-2 px-8 pt-5">
+        {DAY_FILTERS.map(f => (
+          <button
+            key={f.key}
+            onClick={() => chooseDayFilter(f.key)}
+            className={`px-4 py-1.5 rounded-full text-sm font-bold border transition-colors ${dayFilter === f.key ? 'bg-frusangar-green text-white border-frusangar-green shadow-sm' : 'bg-white text-stone-500 border-stone-200 hover:text-frusangar-dark hover:border-frusangar-green/40'}`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {error && (
-        <div className="mx-4 lg:mx-6 mt-3 p-3 bg-red-50 text-red-700 rounded-lg border border-red-200 flex items-center text-sm">
-          <AlertCircle className="mr-2 shrink-0" size={18} />
+        <div className="mx-4 sm:mx-6 lg:mx-8 mt-6 p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 flex items-center shadow-sm">
+          <AlertCircle className="mr-2 shrink-0" size={20} />
           {error}
         </div>
       )}
 
       {/* Main: 3 day columns + changes panel */}
-      <main className="flex-1 min-h-0 p-3 lg:p-5 grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-[1fr_auto] xl:grid-rows-1 xl:grid-cols-[1fr_1fr_1fr_340px] gap-4 lg:gap-5">
+      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:pt-5 lg:pb-8 grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_300px] gap-8 items-start">
         {DAYS.map(d => (
           <DayColumn
             key={d.key}
@@ -198,13 +221,14 @@ function App() {
             accent={d.accent}
             loading={loading && !data}
             focusOrderId={focusOrderId}
-            className={tab === d.key ? 'flex' : 'hidden lg:flex'}
+            wide={dayFilter === d.key}
+            className={`${tab === d.key ? 'flex' : 'hidden'} ${dayFilter === 'all' ? 'lg:flex' : dayFilter === d.key ? 'lg:flex lg:col-span-3' : 'lg:hidden'}`}
           />
         ))}
         <ChangesPanel
           events={events}
           onSelectOrder={selectOrder}
-          className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 lg:max-h-64 xl:max-h-none xl:col-span-1`}
+          className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 xl:col-span-1 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]`}
         />
       </main>
 

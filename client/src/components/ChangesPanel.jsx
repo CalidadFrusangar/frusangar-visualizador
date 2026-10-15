@@ -12,11 +12,11 @@ const ChangesPanel = ({ events, onSelectOrder, className = '' }) => {
     const visible = filter === 'all' ? events : events.filter(e => e.priority === 'critico' || e.priority === 'alto');
 
     return (
-        <aside className={`flex-col bg-white/80 backdrop-blur-sm rounded-3xl border border-white shadow-xl shadow-gray-200/50 lg:h-full overflow-hidden ${className}`}>
-            <div className="p-5 pb-3 border-b border-gray-100">
+        <aside className={`flex-col bg-white rounded-xl shadow-card border border-stone-100/80 overflow-hidden ${className}`}>
+            <div className="px-4 py-3 border-b border-stone-100">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                        <Bell size={20} className="text-frusangar-orange" /> Avisos
+                    <h2 className="text-lg font-bold text-frusangar-dark flex items-center gap-2">
+                        <Bell size={18} className="text-frusangar-orange" /> Avisos
                     </h2>
                     <div className="flex bg-stone-100 rounded-full p-0.5 text-[11px] font-bold">
                         {FILTERS.map(f => (
@@ -32,7 +32,7 @@ const ChangesPanel = ({ events, onSelectOrder, className = '' }) => {
                 </div>
             </div>
 
-            <div className="flex-1 lg:overflow-y-auto p-4 space-y-3 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar max-h-[60vh] xl:max-h-none">
                 {visible.length === 0 && (
                     <p className="text-sm text-stone-400 text-center py-10">Sin cambios recientes en los pedidos.</p>
                 )}
@@ -42,7 +42,7 @@ const ChangesPanel = ({ events, onSelectOrder, className = '' }) => {
                         <button
                             key={e.id}
                             onClick={() => onSelectOrder(e.orderId)}
-                            className={`w-full text-left rounded-xl border p-3 transition-transform active:scale-[0.98] hover:shadow-md ${style.soft}`}
+                            className={`w-full text-left rounded-lg border p-2.5 transition-transform active:scale-[0.98] hover:shadow-md ${style.soft}`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${style.chip}`}>

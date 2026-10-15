@@ -1,4 +1,5 @@
 const { executeKw } = require('./odoo');
+const { boxesByPicking, boxStatus } = require('./boxes');
 const { madridDayRanges, toOdooUtc, fromOdooUtc } = require('./dates');
 
 // 1 = Navalcarnero, 5 = Mercamadrid Interno (produced in Navalcarnero)
@@ -8,7 +9,8 @@ const ORDER_FIELDS = ['name', 'partner_id', 'expected_date', 'commitment_date', 
   'state', 'type_id', 'picking_ids', 'write_date', 'date_order'];
 const LINE_FIELDS = ['product_id', 'product_uom_qty', 'product_uom', 'name', 'order_id',
   'product_packaging_id', 'product_packaging_qty', 'palet_id', 'palet_qty', 'display_type', 'sequence'];
-const PICKING_FIELDS = ['name', 'state', 'picking_type_code', 'date_done', 'sale_id'];
+const PICKING_FIELDS = ['name', 'state', 'picking_type_code', 'date_done', 'sale_id',
+  'x_cajas_declaradas', 'x_cajas_declaracion', 'write_date'];
 
 // Validado: all outgoing pickings done; Parcial: some done; Pendiente: none done
 function pickingStatus(pickings) {
@@ -51,6 +53,7 @@ async function fetchOrdersByDay(now = new Date()) {
     linesByOrder.get(id).push(l);
   }
   const pickingById = new Map(pickings.map(p => [p.id, p]));
+  const boxesById = await boxesByPicking(pickings);
 
   const result = Object.fromEntries(days.map(d => [d.key, []]));
 
@@ -69,6 +72,7 @@ async function fetchOrdersByDay(now = new Date()) {
       lines: orderLines,
       pickings: orderPickings,
       pickingStatus: pickingStatus(orderPickings),
+      boxes: boxStatus(orderPickings, boxesById),
     });
   }
 

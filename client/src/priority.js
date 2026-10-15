@@ -13,6 +13,18 @@ export const PICKING_STYLE = {
     pendiente: { label: 'Pendiente', icon: '⏳', className: 'bg-stone-100 text-stone-600 border-stone-200' },
 };
 
+// Returnable box (Euro Pool / IFCO) declaration, from x_cajas_declaradas on the delivery note.
+// Only delivery notes whose lots used returnable boxes need it.
+export const BOX_STYLE = {
+    declarada: { label: 'Cajas declaradas', icon: '📦✔', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
+    sin_declarar: { label: 'SIN declarar', icon: '📦✖', className: 'bg-red-600 text-white border-red-700' },
+};
+
+export const boxTitle = (boxes) => [
+    boxes.boxes?.length ? `Caja retornable: ${boxes.boxes.join(', ')}` : '',
+    ...(boxes.detail || []),
+].filter(Boolean).join(' · ');
+
 export const maxPriority = (events) =>
     events.reduce((best, e) => (PRIORITY_RANK[e.priority] > PRIORITY_RANK[best] ? e.priority : best), 'info');
 
