@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, AlertCircle, Volume2, VolumeX } from 'lucide-react';
+import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone } from 'lucide-react';
 import { fetchOrders, fetchEvents, getSession, onUnauthorized } from './api';
 import { unlockAudio, beep } from './push';
+import { speak, stopSpeaking, describeForSpeech, speechSupported } from './speech';
 import DayColumn from './components/DayColumn';
 import ChangesPanel from './components/ChangesPanel';
 import CriticalAlert from './components/CriticalAlert';
@@ -11,6 +12,8 @@ import logo from './assets/logo.png';
 
 const REFRESH_MS = 20_000;
 const FOCUS_MS = 10_000;
+// A critical alert repeats (beeps + voice) until someone presses "Visto"
+const REPEAT_MS = 30_000;
 
 const DAYS = [
   { key: 'today', title: 'Hoy', accent: { border: 'border-red-400/40', icon: 'text-red-500', chip: 'border-red-200' } },
@@ -20,8 +23,26 @@ const DAYS = [
 
 const TABS = [...DAYS.map(d => ({ key: d.key, label: d.title === 'Pasado Mañana' ? 'Pasado' : d.title })), { key: 'events', label: 'Avisos' }];
 
-const readSound = () => {
-  try { return localStorage.getItem('sound') === 'on'; } catch { return false; }
+const readFlag = (key) => {
+  try { return localStorage.getItem(key) === 'on'; } catch { return false; }
+};
+const saveFlag = (key, on) => {
+  try { localStorage.setItem(key, on ? 'on' : 'off'); } catch { /* ignore */ }
+};
+
+// ?probar=critico | alto | cajas -> fake alert to try sound and voice (nothing is sent anywhere)
+const testKind = () => new URLSearchParams(window.location.search).get('probar');
+const testEvent = (kind, orders) => {
+  const o = orders?.today?.[0] || orders?.tomorrow?.[0];
+  const priority = kind === 'critico' ? 'critico' : 'alto';
+  const changes = kind === 'cajas'
+    ? [{ type: 'CAJAS_SIN_DECLARAR', priority, text: 'PRUEBA · Euro Pool 156 sin declarar' }]
+    : [{ type: 'PRUEBA', priority, text: 'PRUEBA · Patata lavada saco 10 kg: 40 → 60 bultos' }];
+  return {
+    id: `prueba-${Date.now()}`, test: true, ts: new Date().toISOString(), priority,
+    orderId: o?.id, orderName: o?.name || 'PVNAV/00000', partner: o?.partner_id?.[1] || 'Cliente de prueba',
+    dayLabel: 'Hoy', wasValidated: false, changes,
+  };
 };
 
 const DAY_FILTERS = [{ key: 'all', label: 'Todos' }, ...DAYS.map(d => ({ key: d.key, label: `Solo ${d.title.toLowerCase()}` }))];
@@ -41,11 +62,21 @@ function Dashboard() {
   const [tab, setTab] = useState('today');
   const [focusOrderId, setFocusOrderId] = useState(initialFocus);
   const [alertEvent, setAlertEvent] = useState(null);
-  const [soundOn, setSoundOn] = useState(readSound);
+  const [soundOn, setSoundOn] = useState(() => readFlag('sound'));
+  const [voiceOn, setVoiceOn] = useState(() => readFlag('voice'));
   const [dayFilter, setDayFilter] = useState(readDayFilter);
 
   const seenEvents = useRef(null);
   const soundRef = useRef(soundOn);
+  const voiceRef = useRef(voiceOn);
+  const testDone = useRef(false);
+
+  // Beeps first, then the spoken description
+  const announce = useCallback((event) => {
+    const critical = event.priority === 'critico';
+    if (soundRef.current) beep(critical ? 3 : 1, critical ? 988 : 660);
+    if (voiceRef.current) setTimeout(() => speak(describeForSpeech(event)), soundRef.current ? (critical ? 1100 : 450) : 0);
+  }, []);
   const focusTimer = useRef(null);
 
   const load = useCallback(async () => {
@@ -61,21 +92,30 @@ function Dashboard() {
       if (seenEvents.current) {
         const fresh = evts.filter(e => !seenEvents.current.has(e.id));
         const critical = fresh.find(e => e.priority === 'critico');
+        const important = fresh.find(e => e.priority === 'alto');
         if (critical) {
           setAlertEvent(critical);
-          if (soundRef.current) beep(3, 988);
-        } else if (soundRef.current && fresh.some(e => e.priority === 'alto')) {
-          beep(1, 660);
+          announce(critical);
+        } else if (important) {
+          announce(important);
         }
       }
       seenEvents.current = new Set(evts.map(e => e.id));
+
+      const kind = testKind();
+      if (kind && !testDone.current) {
+        testDone.current = true;
+        const fake = testEvent(kind, orders.orders);
+        if (fake.priority === 'critico') setAlertEvent(fake);
+        announce(fake);
+      }
     } catch (err) {
       console.error(err);
       setError('Error al cargar los pedidos. ¿Está el servidor corriendo?');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [announce]);
 
   useEffect(() => {
     load();
@@ -93,18 +133,34 @@ function Dashboard() {
 
   // Browsers only allow audio after a user interaction
   useEffect(() => {
-    if (!soundOn) return;
+    if (!soundOn && !voiceOn) return;
     const unlock = () => unlockAudio();
     window.addEventListener('pointerdown', unlock, { once: true });
     return () => window.removeEventListener('pointerdown', unlock);
-  }, [soundOn]);
+  }, [soundOn, voiceOn]);
+
+  // Critical alert: repeat until acknowledged
+  useEffect(() => {
+    if (!alertEvent) return;
+    const t = setInterval(() => announce(alertEvent), REPEAT_MS);
+    return () => clearInterval(t);
+  }, [alertEvent, announce]);
 
   const toggleSound = () => {
     const next = !soundOn;
     setSoundOn(next);
     soundRef.current = next;
-    try { localStorage.setItem('sound', next ? 'on' : 'off'); } catch { /* ignore */ }
+    saveFlag('sound', next);
     if (next) { unlockAudio(); beep(1); }
+  };
+
+  const toggleVoice = () => {
+    const next = !voiceOn;
+    setVoiceOn(next);
+    voiceRef.current = next;
+    saveFlag('voice', next);
+    if (next) speak('Voz de avisos activada.');
+    else stopSpeaking();
   };
 
   const chooseDayFilter = useCallback((key) => {
@@ -113,6 +169,7 @@ function Dashboard() {
   }, []);
 
   const selectOrder = useCallback((orderId) => {
+    stopSpeaking();
     setAlertEvent(null);
     setFocusOrderId(orderId);
     const day = data && DAYS.find(d => data.orders[d.key]?.some(o => o.id === orderId));
@@ -122,7 +179,10 @@ function Dashboard() {
     }
   }, [data]);
 
-  const closeAlert = useCallback(() => setAlertEvent(null), []);
+  const closeAlert = useCallback(() => {
+    stopSpeaking();
+    setAlertEvent(null);
+  }, []);
 
   const ordersOf = (key) => data?.orders?.[key] || [];
   const dateOf = (key) => data?.days?.find(d => d.key === key)?.date;
@@ -169,6 +229,15 @@ function Dashboard() {
             >
               {soundOn ? <Volume2 size={20} className="text-frusangar-green" /> : <VolumeX size={20} />}
             </button>
+            {speechSupported() && (
+              <button
+                onClick={toggleVoice}
+                className="p-2.5 rounded-xl bg-white text-stone-500 hover:text-frusangar-dark border border-stone-200 active:scale-95"
+                title={voiceOn ? 'Voz de avisos activada' : 'Activar voz de avisos (lee los avisos en voz alta)'}
+              >
+                <Megaphone size={20} className={voiceOn ? 'text-frusangar-green' : ''} />
+              </button>
+            )}
             <NotificationsButton />
             <button
               onClick={load}
