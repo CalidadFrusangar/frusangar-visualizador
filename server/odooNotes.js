@@ -5,7 +5,7 @@ const { executeKw } = require('./odoo');
 const ENABLED = process.env.ODOO_ACK_NOTES === 'true';
 
 const PRIORITY_LABEL = { critico: 'crítico', alto: 'importante', normal: 'normal', info: 'info' };
-// mail.mt_note («Nota») in Frusangar's Odoo; the API user cannot read ir.model.data to resolve it
+// mail.mt_note («Nota», internal) in Frusangar's Odoo; the API user cannot read ir.model.data to resolve it
 const NOTE_SUBTYPE_ID = Number(process.env.ODOO_NOTE_SUBTYPE_ID) || 2;
 
 const madrid = (iso, options) => new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', ...options });
@@ -23,19 +23,17 @@ function ackNoteBody(event) {
 const escapeHtml = (t) => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const toHtml = (text) => `<p>${text.split('\n').map(escapeHtml).join('<br>')}</p>`;
 
-// message_post over XML-RPC makes Odoo 16 escape the body (the chatter showed "<p>…</p>" as text),
-// so the note is created directly as a chatter message with sanitized HTML. Author = the API user.
-// prefix: e.g. '🧪 PRUEBA' for a manual test note
+// Odoo 16 keeps the HTML body as is. Note: reading it back with the `xmlrpc` package can show
+// "&lt;p&gt;" (it mis-decodes some emoji); the raw XML matches notes written by hand.
+// Author = the API user. prefix: e.g. '🧪 PRUEBA' for a manual test note
 async function postAckNote(event, { force = false, prefix = '' } = {}) {
   if ((!ENABLED && !force) || event.test || !event.orderId || !event.ack) return false;
   const text = (prefix ? `${prefix}\n` : '') + ackNoteBody(event);
-  await executeKw('mail.message', 'create', [{
-    model: 'sale.order',
-    res_id: event.orderId,
+  await executeKw('sale.order', 'message_post', [[event.orderId]], {
     body: toHtml(text),
     message_type: 'comment',
     subtype_id: NOTE_SUBTYPE_ID,
-  }]);
+  });
   return true;
 }
 

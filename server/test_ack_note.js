@@ -20,6 +20,10 @@ const { postAckNote } = require('./odooNotes');
   const [msg] = await executeKw('mail.message', 'search_read',
     [[['model', '=', 'sale.order'], ['res_id', '=', order.id]]],
     { fields: ['body', 'author_id', 'subtype_id', 'message_type', 'partner_ids'], limit: 1, order: 'id desc' });
-  console.log(`Nota de prueba en ${order.name}:`);
-  console.log(JSON.stringify(msg, null, 1));
+  // The xmlrpc package may leave entities undecoded; show the note as the chatter does
+  const decoded = msg.body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const text = decoded.replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '');
+  console.log(`Nota de prueba en ${order.name} (id ${msg.id}, ${msg.subtype_id?.[1]}, autor ${msg.author_id?.[1]}, destinatarios: ${msg.partner_ids.length}):`);
+  console.log(`HTML guardado: ${decoded}`);
+  console.log(`Se verá así:\n${text}`);
 })().catch(err => { console.error('Error:', err.message); process.exit(1); });
