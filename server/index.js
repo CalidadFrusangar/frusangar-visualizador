@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
@@ -8,10 +7,25 @@ const poller = require('./poller');
 const push = require('./push');
 const { fetchOrdersByDay } = require('./fetchOrders');
 const { PRIORITY_RANK } = require('./diff');
+const auth = require('./auth');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+// Render (and ngrok) sit in front as a proxy: needed for req.secure and the client IP
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'same-origin',
+  });
+  next();
+});
+app.use(express.json({ limit: '20kb' }));
+
+// Same origin only (no CORS). Everything under /api needs the PIN except login/session.
+auth.registerRoutes(app);
+app.use('/api', auth.requireAuth);
 
 // How long an order keeps its "modified" highlight
 const RECENT_MS = 3 * 60 * 60 * 1000;

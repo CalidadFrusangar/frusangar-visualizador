@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, AlertCircle, Volume2, VolumeX } from 'lucide-react';
-import { fetchOrders, fetchEvents } from './api';
+import { fetchOrders, fetchEvents, getSession, onUnauthorized } from './api';
 import { unlockAudio, beep } from './push';
 import DayColumn from './components/DayColumn';
 import ChangesPanel from './components/ChangesPanel';
 import CriticalAlert from './components/CriticalAlert';
 import NotificationsButton from './components/NotificationsButton';
+import Login from './components/Login';
 import logo from './assets/logo.png';
 
 const REFRESH_MS = 20_000;
@@ -31,7 +32,7 @@ const readDayFilter = () => {
 
 const initialFocus = () => Number(new URLSearchParams(window.location.search).get('order')) || null;
 
-function App() {
+function Dashboard() {
   const [data, setData] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -235,6 +236,26 @@ function App() {
       <CriticalAlert event={alertEvent} onClose={closeAlert} onOpen={selectOrder} />
     </div>
   );
+}
+
+// PIN gate: the dashboard (and its polling) only mounts once the session is valid
+function App() {
+  const [session, setSession] = useState(null); // null = checking
+
+  const check = useCallback(() => getSession()
+    .then(setSession)
+    .catch(() => setSession({ authenticated: false, configured: true })), []);
+
+  useEffect(() => {
+    getSession()
+      .then(setSession)
+      .catch(() => setSession({ authenticated: false, configured: true }));
+    return onUnauthorized(() => setSession(s => (s?.authenticated ? { ...s, authenticated: false } : s)));
+  }, [check]);
+
+  if (!session) return <div className="min-h-screen bg-frusangar-light" />;
+  if (!session.authenticated) return <Login onSuccess={check} notConfigured={!session.configured} />;
+  return <Dashboard />;
 }
 
 export default App;

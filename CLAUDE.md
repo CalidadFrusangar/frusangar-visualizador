@@ -16,7 +16,7 @@ En Odoo, una acción automatizada genera un texto de WhatsApp al validar pedido/
 - `start_production.bat` → compila el cliente y arranca.
 - Cliente: `cd client && npm run build` (o `npm run dev` en :3005 con proxy a :3000).
 - Tests: `cd server && npm test` (node:test, `diff.test.js`).
-- `server/.env` (no está en git): `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_PASSWORD`. Opcionales: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `POLL_MS`, `NOTIFY_QUIET_MS`, `DATA_DIR`.
+- `server/.env` (no está en git): `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_PASSWORD`, `APP_PIN` (PIN de acceso; sin él la API queda bloqueada). Opcionales: `SESSION_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `POLL_MS`, `NOTIFY_QUIET_MS`, `DATA_DIR`.
 - `server/data/` (no está en git): `state.json` (instantáneas, eventos, suscripciones push) y `vapid.json` (claves generadas si no hay env). Borrar `state.json` = nueva línea base sin avisos.
 - `server/inspect_today.js`: script de solo lectura que lista los pedidos por día con estado de albarán.
 
@@ -38,6 +38,8 @@ En Odoo, una acción automatizada genera un texto de WhatsApp al validar pedido/
 - `poller.js`: cada 30 s; agrupa los cambios de un pedido hasta 60 s de calma (máx. 5 min) y compara la línea base con lo último, así las ediciones que se anulan no avisan. Ignora los pedidos que solo aparecen por avance de la ventana a medianoche.
 - `store.js`: persistencia en JSON (interfaz pensada para cambiarla por una BD).
 - `push.js`: Web Push (`web-push`, VAPID); cada suscripción tiene `minPriority`.
+- `auth.js`: acceso con **PIN compartido** (`APP_PIN`). Cookie de sesión firmada httpOnly de 180 días por dispositivo; cambiar `APP_PIN` cierra todas las sesiones. 5 fallos por IP (o 30 en total) bloquean 15 min. Todo `/api` exige sesión salvo `/api/session` y `/api/login`. Sin CORS (mismo origen).
+- `boxes.js`: estado de **declaración de cajas retornables** por albarán: se declara si sus lotes vienen de OF con cajas Euro Pool/IFCO (mismo criterio y catálogo que la app «Declarar cajas» de `Y:\Desarrollos\Agentes\PEDIR EN GO RAMP EUROPOOL`); lee `x_cajas_declaradas` / `x_cajas_declaracion` del albarán.
 - Rutas: `GET /api/orders`, `GET /api/events`, `/api/push/{public-key,subscribe,unsubscribe,test}`.
 
 Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insignia de albarán, banner "Modificado", líneas antes→después y eliminadas), `ChangesPanel`, `CriticalAlert` (pantalla completa + sonido), `NotificationsButton`, `push.js`, `public/sw.js` + `manifest.webmanifest`. `?order=<id>` abre y resalta un pedido.
@@ -45,6 +47,7 @@ Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insi
 Lint: `motion` de framer-motion da falso positivo de `no-unused-vars` (ya pasaba en la v1).
 
 ## Pendientes
+- Antes de desplegar la v2: poner `APP_PIN` en las variables de entorno de Render. La v1 de producción no tiene ningún control de acceso (comprobado el 15/10/2026).
 - Probar push en móvil por HTTPS: ngrok (el zip del repo está vacío, hay que descargarlo de nuevo). iPhone requiere "Añadir a pantalla de inicio".
 - Antes de producción: el disco de Render free es efímero → decidir disco persistente o BD gratuita (Neon/Supabase) y pasar las claves VAPID a variables de entorno.
 - Mejorar la acción automatizada de WhatsApp en Odoo (prompt para otro agente en `docs/prompt-agente-odoo.md`). No desactivar la acción antigua hasta validar la v2 en planta.

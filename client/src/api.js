@@ -25,3 +25,19 @@ export const subscribePush = (subscription, minPriority) =>
 export const unsubscribePush = (endpoint) => api.post('/push/unsubscribe', { endpoint });
 
 export const testPush = (endpoint) => api.post('/push/test', { endpoint });
+
+// PIN access: the server keeps an httpOnly session cookie
+export const getSession = async () => (await api.get('/session')).data;
+
+export const login = (pin) => api.post('/login', { pin });
+
+export const logout = () => api.post('/logout');
+
+// Any 401 means the session expired or the PIN changed: show the PIN screen again
+export const onUnauthorized = (handler) => {
+    const id = api.interceptors.response.use(undefined, (error) => {
+        if (error.response?.status === 401 && !error.config?.url?.endsWith('/login')) handler();
+        return Promise.reject(error);
+    });
+    return () => api.interceptors.response.eject(id);
+};
