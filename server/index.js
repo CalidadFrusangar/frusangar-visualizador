@@ -115,6 +115,14 @@ app.post('/api/events/:id/ack', async (req, res) => {
   }
 });
 
+// Archive / restore alerts: { ids: [...], archived: true|false }
+app.post('/api/events/archive', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(id => typeof id === 'string').slice(0, 200) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Sin avisos' });
+  const changed = store.archiveEvents(ids, req.body?.archived !== false);
+  res.json(changed);
+});
+
 app.get('/api/push/public-key', (req, res) => {
   res.json({ publicKey: push.publicKey });
 });

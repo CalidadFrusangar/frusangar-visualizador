@@ -13,6 +13,8 @@ let state = empty();
 function load() {
   try {
     state = { ...empty(), ...JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) };
+    // Alerts seen before archiving existed count as archived
+    for (const e of state.events) if (e.ack && !e.archivedAt) e.archivedAt = e.ack.at;
     console.log(`State loaded: ${Object.keys(state.snapshots || {}).length} snapshots, ` +
       `${state.events.length} events, ${state.subscriptions.length} push subscriptions`);
   } catch (err) {
@@ -39,8 +41,24 @@ function ackEvent(id, employee, now = new Date()) {
   if (!event) return { event: null, created: false };
   if (event.ack) return { event, created: false };
   event.ack = { employeeId: employee.id, name: employee.name, at: now.toISOString() };
+  // Seen = dealt with: it leaves the alert list (still under «Archivados»)
+  if (!event.archivedAt) event.archivedAt = event.ack.at;
   save();
   return { event, created: true };
+}
+
+// Archive (or restore) alerts on every device. Returns the events that changed.
+function archiveEvents(ids, archived = true, now = new Date()) {
+  const wanted = new Set(ids);
+  const changed = [];
+  for (const event of state.events) {
+    if (!wanted.has(event.id) || !!event.archivedAt === archived) continue;
+    if (archived) event.archivedAt = now.toISOString();
+    else delete event.archivedAt;
+    changed.push(event);
+  }
+  if (changed.length) save();
+  return changed;
 }
 
 function upsertSubscription(sub) {
@@ -56,7 +74,7 @@ function removeSubscription(endpoint) {
 }
 
 module.exports = {
-  load, save, addEvents, ackEvent, upsertSubscription, removeSubscription,
+  load, save, addEvents, ackEvent, archiveEvents, upsertSubscription, removeSubscription,
   get state() { return state; },
   DATA_DIR,
 };

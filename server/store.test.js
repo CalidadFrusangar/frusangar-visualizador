@@ -1,23 +1,23 @@
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const fs = require('fs');
 
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'visualizador-'));
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-store-'));
 const store = require('./store');
 
-test('ackEvent keeps the first employee who saw the alert', () => {
-  store.load();
-  store.addEvents([{ id: 'e1', orderName: 'PVNAV/1' }]);
-  const first = store.ackEvent('e1', { id: 5, name: 'Ana' }, new Date('2026-10-15T10:00:00Z'));
-  assert.strictEqual(first.created, true);
-  assert.deepStrictEqual(first.event.ack, { employeeId: 5, name: 'Ana', at: '2026-10-15T10:00:00.000Z' });
-  const second = store.ackEvent('e1', { id: 6, name: 'Luis' });
-  assert.strictEqual(second.created, false);
-  assert.strictEqual(second.event.ack.name, 'Ana');
-  assert.strictEqual(store.ackEvent('nope', { id: 5, name: 'Ana' }).event, null);
-  // persisted
-  store.load();
+test('seen alerts are archived; archive and restore on every device', () => {
+  store.state.events = [{ id: 'a', priority: 'critico' }, { id: 'b', priority: 'info' }, { id: 'c', priority: 'normal' }];
+
+  const { event } = store.ackEvent('a', { id: 7, name: 'Ana' }, new Date('2026-10-15T10:00:00Z'));
+  assert.strictEqual(event.archivedAt, '2026-10-15T10:00:00.000Z');
+
+  const changed = store.archiveEvents(['a', 'b', 'zzz'], true, new Date('2026-10-15T11:00:00Z'));
+  assert.deepStrictEqual(changed.map(e => e.id), ['b']);
+  assert.strictEqual(store.state.events[2].archivedAt, undefined);
+
+  assert.deepStrictEqual(store.archiveEvents(['a'], false).map(e => e.id), ['a']);
+  assert.strictEqual(store.state.events[0].archivedAt, undefined);
   assert.strictEqual(store.state.events[0].ack.name, 'Ana');
 });

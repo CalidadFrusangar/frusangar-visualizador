@@ -47,3 +47,7 @@ export const fetchEmployees = async () => (await api.get('/employees')).data;
 
 export const ackEvent = async (eventId, employeeId) =>
     (await api.post(`/events/${encodeURIComponent(eventId)}/ack`, { employeeId })).data;
+
+// Archive (archived = true) or restore alerts on every device; returns the changed events
+export const archiveEvents = async (ids, archived = true) =>
+    (await api.post("/events/archive", { ids, archived })).data;

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical } from 'lucide-react';
-import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent } from './api';
+import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent, archiveEvents } from './api';
 import { unlockAudio, beep } from './push';
 import { speak, stopSpeaking, describeForSpeech, speechSupported } from './speech';
 import DayColumn from './components/DayColumn';
@@ -242,7 +242,7 @@ function Dashboard() {
     const { event, openOrder } = ackTarget;
     if (event.test) {
       const ack = { employeeId: employee.id, name: employee.name, at: new Date().toISOString() };
-      setTestEvents(list => list.map(e => (e.id === event.id ? { ...e, ack } : e)));
+      setTestEvents(list => list.map(e => (e.id === event.id ? { ...e, ack, archivedAt: e.archivedAt || ack.at } : e)));
     } else {
       const saved = await ackEvent(event.id, employee.id);
       setEvents(list => list.map(e => (e.id === saved.id ? saved : e)));
@@ -252,12 +252,24 @@ function Dashboard() {
     if (openOrder && event.orderId) selectOrder(event.orderId, event.orderName);
   }, [ackTarget, alertEvent, closeAlert, selectOrder]);
 
+  // Archive / restore alerts (test alerts only on this screen, real ones on every device)
+  const archive = useCallback(async (list, archived = true) => {
+    const at = new Date().toISOString();
+    const apply = (e) => (archived ? { ...e, archivedAt: e.archivedAt || at } : { ...e, archivedAt: undefined });
+    const testIds = new Set(list.filter(e => e.test).map(e => e.id));
+    if (testIds.size) setTestEvents(all => all.map(e => (testIds.has(e.id) ? apply(e) : e)));
+    const ids = list.filter(e => !e.test).map(e => e.id);
+    if (!ids.length) return;
+    const changed = new Map((await archiveEvents(ids, archived)).map(e => [e.id, e]));
+    setEvents(all => all.map(e => changed.get(e.id) || e));
+  }, []);
+
   const ordersOf = (key) => data?.orders?.[key] || [];
   const dateOf = (key) => data?.days?.find(d => d.key === key)?.date;
   const undeclaredBoxes = DAYS.flatMap(d => ordersOf(d.key))
     .filter(o => o.state !== 'cancel' && o.boxes?.status === 'sin_declarar').length;
   const pendingToday = ordersOf('today').filter(o => o.state !== 'cancel' && o.pickingStatus !== 'validado').length;
-  const importantEvents = events.filter(e => (e.priority === 'critico' || e.priority === 'alto') && Date.now() - new Date(e.ts) < 3 * 3600_000).length;
+  const importantEvents = events.filter(e => !e.archivedAt && (e.priority === 'critico' || e.priority === 'alto') && Date.now() - new Date(e.ts) < 3 * 3600_000).length;
 
   return (
     <div className="min-h-screen bg-frusangar-light text-stone-800 font-sans selection:bg-frusangar-green selection:text-white">
@@ -385,6 +397,7 @@ function Dashboard() {
           events={[...testEvents, ...events]}
           onSelectOrder={selectOrder}
           onAck={requestAck}
+          onArchive={archive}
           className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 xl:col-span-1 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]`}
         />
       </main>
