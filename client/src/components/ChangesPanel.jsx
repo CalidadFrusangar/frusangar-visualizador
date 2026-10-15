@@ -46,7 +46,7 @@ const ChangesPanel = ({ events, onSelectOrder, className = '' }) => {
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${style.chip}`}>
-                                    {style.label}
+                                    {e.test && 'Prueba · '}{style.label}
                                 </span>
                                 <span className="text-[11px] font-semibold opacity-70">{clockTime(e.ts)}</span>
                             </div>

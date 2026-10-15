@@ -35,6 +35,9 @@ const partnerName = (name = '') => name
     .toLowerCase();
 const changeText = (text = '') => text
     .replace(/\[[^\]]*\]\s*/g, '')
+    .replace(/\s*\([+-]?[\d.,]+ [^)]*\)\s*$/, '')
+    .replace(/^\+\s*/, 'añadido ')
+    .replace(/^[−-]\s*/, 'quitado ')
     .replace(/→/g, ' pasa a ')
     .replace(/\bKG\b/gi, 'kilos')
     .replace(/\s+/g, ' ')

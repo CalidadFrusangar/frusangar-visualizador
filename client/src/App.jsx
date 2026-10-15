@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone } from 'lucide-react';
+import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical } from 'lucide-react';
 import { fetchOrders, fetchEvents, getSession, onUnauthorized } from './api';
 import { unlockAudio, beep } from './push';
 import { speak, stopSpeaking, describeForSpeech, speechSupported } from './speech';
@@ -8,12 +8,16 @@ import ChangesPanel from './components/ChangesPanel';
 import CriticalAlert from './components/CriticalAlert';
 import NotificationsButton from './components/NotificationsButton';
 import Login from './components/Login';
+import DemoAlerts from './components/DemoAlerts';
+import { demoEvent, DEMO_COUNT } from './demoAlerts';
 import logo from './assets/logo.png';
 
 const REFRESH_MS = 20_000;
 const FOCUS_MS = 10_000;
 // A critical alert repeats (beeps + voice) until someone presses "Visto"
 const REPEAT_MS = 30_000;
+// Gap between alerts when playing every test alert in a row
+const DEMO_GAP_MS = 12_000;
 
 const DAYS = [
   { key: 'today', title: 'Hoy', accent: { border: 'border-red-400/40', icon: 'text-red-500', chip: 'border-red-200' } },
@@ -30,26 +34,14 @@ const saveFlag = (key, on) => {
   try { localStorage.setItem(key, on ? 'on' : 'off'); } catch { /* ignore */ }
 };
 
-// ?probar=critico | alto | cajas -> fake alert to try sound and voice (nothing is sent anywhere)
-const testKind = () => new URLSearchParams(window.location.search).get('probar');
-const testEvent = (kind, orders) => {
-  const o = orders?.today?.[0] || orders?.tomorrow?.[0];
-  const priority = kind === 'critico' ? 'critico' : 'alto';
-  const changes = kind === 'cajas'
-    ? [{ type: 'CAJAS_SIN_DECLARAR', priority, text: 'PRUEBA · Euro Pool 156 sin declarar' }]
-    : [{ type: 'PRUEBA', priority, text: 'PRUEBA · Patata lavada saco 10 kg: 40 → 60 bultos' }];
-  return {
-    id: `prueba-${Date.now()}`, test: true, ts: new Date().toISOString(), priority,
-    orderId: o?.id, orderName: o?.name || 'PVNAV/00000', partner: o?.partner_id?.[1] || 'Cliente de prueba',
-    dayLabel: 'Hoy', wasValidated: false, changes,
-  };
-};
-
 const DAY_FILTERS = [{ key: 'all', label: 'Todos' }, ...DAYS.map(d => ({ key: d.key, label: `Solo ${d.title.toLowerCase()}` }))];
 
 const readDayFilter = () => {
   try { return DAY_FILTERS.some(f => f.key === localStorage.getItem('dayFilter')) ? localStorage.getItem('dayFilter') : 'all'; } catch { return 'all'; }
 };
+
+// ?probar opens the test alerts panel
+const wantsDemo = () => new URLSearchParams(window.location.search).has('probar');
 
 const initialFocus = () => Number(new URLSearchParams(window.location.search).get('order')) || null;
 
@@ -69,7 +61,10 @@ function Dashboard() {
   const seenEvents = useRef(null);
   const soundRef = useRef(soundOn);
   const voiceRef = useRef(voiceOn);
-  const testDone = useRef(false);
+  const [demoOpen, setDemoOpen] = useState(wantsDemo);
+  const [testEvents, setTestEvents] = useState([]);
+  const [demoStep, setDemoStep] = useState(null); // index while playing all
+  const demoTimer = useRef(null);
 
   // Beeps first, then the spoken description
   const announce = useCallback((event) => {
@@ -102,13 +97,6 @@ function Dashboard() {
       }
       seenEvents.current = new Set(evts.map(e => e.id));
 
-      const kind = testKind();
-      if (kind && !testDone.current) {
-        testDone.current = true;
-        const fake = testEvent(kind, orders.orders);
-        if (fake.priority === 'critico') setAlertEvent(fake);
-        announce(fake);
-      }
     } catch (err) {
       console.error(err);
       setError('Error al cargar los pedidos. ¿Está el servidor corriendo?');
@@ -162,6 +150,29 @@ function Dashboard() {
     if (next) speak('Voz de avisos activada.');
     else stopSpeaking();
   };
+
+  // Test alerts: shown and sounded like real ones, never sent or stored
+  const tryDemo = useCallback((i) => {
+    const event = demoEvent(i, data?.orders);
+    setTestEvents(list => [event, ...list]);
+    setAlertEvent(event.priority === 'critico' ? event : null);
+    if (event.priority === 'critico' || event.priority === 'alto') announce(event);
+    else stopSpeaking();
+  }, [data, announce]);
+
+  const stopDemo = useCallback(() => {
+    clearTimeout(demoTimer.current);
+    setDemoStep(null);
+  }, []);
+
+  const playDemo = useCallback((i) => {
+    if (i >= DEMO_COUNT) return stopDemo();
+    setDemoStep(i);
+    tryDemo(i);
+    demoTimer.current = setTimeout(() => playDemo(i + 1), DEMO_GAP_MS);
+  }, [tryDemo, stopDemo]);
+
+  useEffect(() => () => clearTimeout(demoTimer.current), []);
 
   const chooseDayFilter = useCallback((key) => {
     setDayFilter(key);
@@ -238,6 +249,13 @@ function Dashboard() {
                 <Megaphone size={20} className={voiceOn ? 'text-frusangar-green' : ''} />
               </button>
             )}
+            <button
+              onClick={() => setDemoOpen(true)}
+              className="hidden sm:block p-2.5 rounded-xl bg-white text-stone-500 hover:text-frusangar-dark border border-stone-200 active:scale-95"
+              title="Probar avisos (sonidos, voz y pantallas de aviso)"
+            >
+              <FlaskConical size={20} />
+            </button>
             <NotificationsButton />
             <button
               onClick={load}
@@ -306,13 +324,29 @@ function Dashboard() {
           />
         ))}
         <ChangesPanel
-          events={events}
+          events={[...testEvents, ...events]}
           onSelectOrder={selectOrder}
           className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 xl:col-span-1 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]`}
         />
       </main>
 
       <CriticalAlert event={alertEvent} onClose={closeAlert} onOpen={selectOrder} />
+
+      <DemoAlerts
+        open={demoOpen}
+        onClose={() => setDemoOpen(false)}
+        onTry={(i) => { stopDemo(); setDemoOpen(false); tryDemo(i); }}
+        onPlayAll={() => { setDemoOpen(false); playDemo(0); }}
+        soundOn={soundOn}
+        voiceOn={voiceOn}
+      />
+
+      {demoStep !== null && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 px-4 py-2.5 rounded-full bg-stone-900 text-white text-sm font-bold shadow-float">
+          🧪 Prueba de avisos {demoStep + 1} de {DEMO_COUNT}
+          <button onClick={() => { stopDemo(); closeAlert(); }} className="px-3 py-1 rounded-full bg-white/15 hover:bg-white/25">Parar</button>
+        </div>
+      )}
     </div>
   );
 }
