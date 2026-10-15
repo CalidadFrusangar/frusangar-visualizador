@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical } from 'lucide-react';
-import { fetchOrders, fetchEvents, getSession, onUnauthorized } from './api';
+import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent } from './api';
 import { unlockAudio, beep } from './push';
 import { speak, stopSpeaking, describeForSpeech, speechSupported } from './speech';
 import DayColumn from './components/DayColumn';
@@ -9,6 +9,7 @@ import CriticalAlert from './components/CriticalAlert';
 import NotificationsButton from './components/NotificationsButton';
 import Login from './components/Login';
 import DemoAlerts from './components/DemoAlerts';
+import EmployeePicker from './components/EmployeePicker';
 import { demoEvent, DEMO_COUNT } from './demoAlerts';
 import logo from './assets/logo.png';
 
@@ -54,6 +55,7 @@ function Dashboard() {
   const [tab, setTab] = useState('today');
   const [focusOrderId, setFocusOrderId] = useState(initialFocus);
   const [alertEvent, setAlertEvent] = useState(null);
+  const [ackTarget, setAckTarget] = useState(null); // { event, openOrder } while choosing who saw it
   const [soundOn, setSoundOn] = useState(() => readFlag('sound'));
   const [voiceOn, setVoiceOn] = useState(() => readFlag('voice'));
   const [dayFilter, setDayFilter] = useState(readDayFilter);
@@ -80,6 +82,7 @@ function Dashboard() {
       const [orders, evts] = await Promise.all([fetchOrders(), fetchEvents(60)]);
       setData(orders);
       setEvents(evts);
+      setAlertEvent(a => (a && !a.test && evts.find(e => e.id === a.id)?.ack ? null : a));
       setError(orders.error ? `Odoo no responde (${orders.error}). Mostrando últimos datos.` : null);
       setLastUpdated(new Date());
 
@@ -129,10 +132,10 @@ function Dashboard() {
 
   // Critical alert: repeat until acknowledged
   useEffect(() => {
-    if (!alertEvent) return;
+    if (!alertEvent || ackTarget) return;
     const t = setInterval(() => announce(alertEvent), REPEAT_MS);
     return () => clearInterval(t);
-  }, [alertEvent, announce]);
+  }, [alertEvent, ackTarget, announce]);
 
   const toggleSound = () => {
     const next = !soundOn;
@@ -194,6 +197,26 @@ function Dashboard() {
     stopSpeaking();
     setAlertEvent(null);
   }, []);
+
+  // "Visto": choose who saw it, save it (test alerts only locally), then close / open the order
+  const requestAck = useCallback((event, openOrder = false) => {
+    stopSpeaking();
+    setAckTarget({ event, openOrder });
+  }, []);
+
+  const confirmAck = useCallback(async (employee) => {
+    const { event, openOrder } = ackTarget;
+    if (event.test) {
+      const ack = { employeeId: employee.id, name: employee.name, at: new Date().toISOString() };
+      setTestEvents(list => list.map(e => (e.id === event.id ? { ...e, ack } : e)));
+    } else {
+      const saved = await ackEvent(event.id, employee.id);
+      setEvents(list => list.map(e => (e.id === saved.id ? saved : e)));
+    }
+    setAckTarget(null);
+    if (alertEvent?.id === event.id) closeAlert();
+    if (openOrder && event.orderId) selectOrder(event.orderId);
+  }, [ackTarget, alertEvent, closeAlert, selectOrder]);
 
   const ordersOf = (key) => data?.orders?.[key] || [];
   const dateOf = (key) => data?.days?.find(d => d.key === key)?.date;
@@ -326,11 +349,14 @@ function Dashboard() {
         <ChangesPanel
           events={[...testEvents, ...events]}
           onSelectOrder={selectOrder}
+          onAck={requestAck}
           className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 xl:col-span-1 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]`}
         />
       </main>
 
-      <CriticalAlert event={alertEvent} onClose={closeAlert} onOpen={selectOrder} />
+      <CriticalAlert event={alertEvent} onClose={() => requestAck(alertEvent)} onOpen={() => requestAck(alertEvent, true)} />
+
+      <EmployeePicker event={ackTarget?.event} onPick={confirmAck} onCancel={() => setAckTarget(null)} />
 
       <DemoAlerts
         open={demoOpen}

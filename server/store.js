@@ -33,6 +33,17 @@ function addEvents(events) {
   state.events = [...events, ...state.events].slice(0, MAX_EVENTS);
 }
 
+// Who saw an alert: the first acknowledgement is kept
+function ackEvent(id, employee, now = new Date()) {
+  const event = state.events.find(e => e.id === id);
+  if (!event) return null;
+  if (!event.ack) {
+    event.ack = { employeeId: employee.id, name: employee.name, at: now.toISOString() };
+    save();
+  }
+  return event;
+}
+
 function upsertSubscription(sub) {
   state.subscriptions = state.subscriptions.filter(s => s.endpoint !== sub.endpoint);
   state.subscriptions.push(sub);
@@ -46,7 +57,7 @@ function removeSubscription(endpoint) {
 }
 
 module.exports = {
-  load, save, addEvents, upsertSubscription, removeSubscription,
+  load, save, addEvents, ackEvent, upsertSubscription, removeSubscription,
   get state() { return state; },
   DATA_DIR,
 };

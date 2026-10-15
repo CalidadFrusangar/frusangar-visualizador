@@ -41,3 +41,9 @@ export const onUnauthorized = (handler) => {
     });
     return () => api.interceptors.response.eject(id);
 };
+
+// Navalcarnero employees (Odoo work location) and "seen by" on alerts
+export const fetchEmployees = async () => (await api.get('/employees')).data;
+
+export const ackEvent = async (eventId, employeeId) =>
+    (await api.post(`/events/${encodeURIComponent(eventId)}/ack`, { employeeId })).data;

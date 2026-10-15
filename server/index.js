@@ -8,6 +8,7 @@ const push = require('./push');
 const { fetchOrdersByDay } = require('./fetchOrders');
 const { PRIORITY_RANK } = require('./diff');
 const auth = require('./auth');
+const { fetchEmployees } = require('./employees');
 
 const app = express();
 // Render (and ngrok) sit in front as a proxy: needed for req.secure and the client IP
@@ -71,6 +72,31 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/events', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   res.json(store.state.events.slice(0, limit));
+});
+
+app.get('/api/employees', async (req, res) => {
+  try {
+    res.json(await fetchEmployees());
+  } catch (err) {
+    console.error('Employees error:', err.message);
+    res.status(502).json({ error: 'No se pudo leer la lista de empleados de Odoo' });
+  }
+});
+
+// Mark an alert as seen by a Navalcarnero employee
+app.post('/api/events/:id/ack', async (req, res) => {
+  let employees;
+  try {
+    employees = await fetchEmployees();
+  } catch (err) {
+    return res.status(502).json({ error: 'No se pudo leer la lista de empleados de Odoo' });
+  }
+  const employee = employees.find(e => e.id === Number(req.body?.employeeId));
+  if (!employee) return res.status(400).json({ error: 'Empleado no válido' });
+  const event = store.ackEvent(req.params.id, employee);
+  if (!event) return res.status(404).json({ error: 'Aviso no encontrado' });
+  console.log(`Aviso ${event.orderName} visto por ${event.ack.name}`);
+  res.json(event);
 });
 
 app.get('/api/push/public-key', (req, res) => {
