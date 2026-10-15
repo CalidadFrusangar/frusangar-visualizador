@@ -10,13 +10,14 @@ En Odoo, una acción automatizada genera un texto de WhatsApp al validar pedido/
 - Se trabaja en la rama **`v2`**. No hacer push a `main` sin confirmación: Render despliega automáticamente desde `main`.
 - Comunicación con el usuario en **español**.
 - No modificar nada en Odoo: el backend solo lee (XML-RPC). Para probar cambios, usar **pedidos de prueba**, nunca de clientes reales.
+- **Única escritura autorizada** (confirmada por el usuario el 15/10/2026): la nota interna «Visto en planta» en el chatter del `sale.order` al marcar un aviso (`odooNotes.js`, `ODOO_ACK_NOTES=true`). La firma el usuario de Odoo `botmake` («Bot MAKE 🤖», UID 23). Las notas de prueba deben ir marcadas «🧪 PRUEBA» (`server/test_ack_note.js <pedido>`).
 
 ## Arranque
 - `npm start` (raíz) → `server/index.js` en http://localhost:3000, sirve también `client/dist`.
 - `start_production.bat` → compila el cliente y arranca.
 - Cliente: `cd client && npm run build` (o `npm run dev` en :3005 con proxy a :3000).
 - Tests: `cd server && npm test` (node:test, `diff.test.js`).
-- `server/.env` (no está en git): `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_PASSWORD`, `APP_PIN` (PIN de acceso; sin él la API queda bloqueada). Opcionales: `SESSION_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `POLL_MS`, `NOTIFY_QUIET_MS`, `BOX_ALERT_MIN` (minutos tras validar para avisar de cajas sin declarar, 120 por defecto), `DATA_DIR`.
+- `server/.env` (no está en git): `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_PASSWORD`, `APP_PIN` (PIN de acceso; sin él la API queda bloqueada). Opcionales: `SESSION_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `POLL_MS`, `NOTIFY_QUIET_MS`, `BOX_ALERT_MIN` (minutos tras validar para avisar de cajas sin declarar, 120 por defecto), `ODOO_ACK_NOTES` (`true` = nota en el chatter al marcar «Visto»), `EMPLOYEE_LOCATION_ID`, `DATA_DIR`.
 - `server/data/` (no está en git): `state.json` (instantáneas, eventos, suscripciones push) y `vapid.json` (claves generadas si no hay env). Borrar `state.json` = nueva línea base sin avisos.
 - `server/inspect_today.js`: script de solo lectura que lista los pedidos por día con estado de albarán.
 
