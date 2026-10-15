@@ -8,9 +8,7 @@ const PRIORITY_LABEL = { critico: 'crítico', alto: 'importante', normal: 'norma
 
 const madrid = (iso, options) => new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', ...options });
 
-const escapeHtml = (t) => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-// Plain text (one item per line); Odoo 16 stores the note as HTML, see toHtml
+// Plain text (one item per line), flattened by toNoteText before posting
 function ackNoteBody(event) {
   const when = `${madrid(event.ack.at, { day: '2-digit', month: '2-digit', year: 'numeric' })} a las ${madrid(event.ack.at, { hour: '2-digit', minute: '2-digit' })}`;
   const changes = (event.changes || []).filter(c => c.priority !== 'info').map(c => c.text).slice(0, 5);
@@ -20,18 +18,20 @@ function ackNoteBody(event) {
   ].join('\n');
 }
 
-const toHtml = (text) => `<p>${text.split('\n').map(escapeHtml).join('<br/>')}</p>`;
+// Over XML-RPC Odoo 16 escapes the body as plain text: HTML tags would show literally and
+// line breaks collapse, so the note goes on a single line ("… · change · change")
+const toNoteText = (text) => text.split('\n').join(' ');
 
 // prefix: e.g. '🧪 PRUEBA' for a manual test note
 async function postAckNote(event, { force = false, prefix = '' } = {}) {
   if ((!ENABLED && !force) || event.test || !event.orderId || !event.ack) return false;
   const text = (prefix ? `${prefix} · ` : '') + ackNoteBody(event);
   await executeKw('sale.order', 'message_post', [[event.orderId]], {
-    body: toHtml(text),
+    body: toNoteText(text),
     message_type: 'comment',
     subtype_xmlid: 'mail.mt_note',
   });
   return true;
 }
 
-module.exports = { postAckNote, ackNoteBody, toHtml, ENABLED };
+module.exports = { postAckNote, ackNoteBody, toNoteText, ENABLED };
