@@ -7,3 +7,6 @@ dist/
 ngrok.exe
 inspect_fields.js
 inspect_order_fields.js
+
+# Visualizador runtime state (snapshots, events, push subscriptions, VAPID keys)
+server/data/

@@ -1,163 +1,214 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { RefreshCw, AlertCircle, Calendar } from 'lucide-react';
-import OrderCard from './components/OrderCard';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { RefreshCw, AlertCircle, Volume2, VolumeX } from 'lucide-react';
+import { fetchOrders, fetchEvents } from './api';
+import { unlockAudio, beep } from './push';
+import DayColumn from './components/DayColumn';
+import ChangesPanel from './components/ChangesPanel';
+import CriticalAlert from './components/CriticalAlert';
+import NotificationsButton from './components/NotificationsButton';
 import logo from './assets/logo.png';
 
+const REFRESH_MS = 20_000;
+const FOCUS_MS = 10_000;
+
+const DAYS = [
+  { key: 'today', title: 'Hoy', accent: { bar: 'bg-gradient-to-r from-red-500 to-frusangar-orange', text: 'text-frusangar-orange', chip: 'bg-frusangar-orange-light text-frusangar-orange' } },
+  { key: 'tomorrow', title: 'Mañana', accent: { bar: 'bg-gradient-to-r from-frusangar-green to-frusangar-dark', text: 'text-frusangar-dark', chip: 'bg-frusangar-light text-frusangar-dark border border-frusangar-green/20' } },
+  { key: 'dayAfter', title: 'Pasado Mañana', accent: { bar: 'bg-gradient-to-r from-amber-400 to-orange-400', text: 'text-amber-600', chip: 'bg-amber-100 text-amber-700' } },
+];
+
+const TABS = [...DAYS.map(d => ({ key: d.key, label: d.title === 'Pasado Mañana' ? 'Pasado' : d.title })), { key: 'events', label: 'Avisos' }];
+
+const readSound = () => {
+  try { return localStorage.getItem('sound') === 'on'; } catch { return false; }
+};
+
+const initialFocus = () => Number(new URLSearchParams(window.location.search).get('order')) || null;
+
 function App() {
-  const [orders, setOrders] = useState({ tomorrow: [], dayAfter: [] });
-  const [dates, setDates] = useState({ tomorrow: '', dayAfter: '' });
+  const [data, setData] = useState(null);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [tab, setTab] = useState('today');
+  const [focusOrderId, setFocusOrderId] = useState(initialFocus);
+  const [alertEvent, setAlertEvent] = useState(null);
+  const [soundOn, setSoundOn] = useState(readSound);
 
-  const fetchOrders = async () => {
+  const seenEvents = useRef(null);
+  const soundRef = useRef(soundOn);
+  const focusTimer = useRef(null);
+
+  const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      const response = await axios.get('/api/orders');
-      setOrders({
-        tomorrow: response.data.tomorrow || [],
-        dayAfter: response.data.dayAfter || []
-      });
-      if (response.data.dates) setDates(response.data.dates);
+      const [orders, evts] = await Promise.all([fetchOrders(), fetchEvents(60)]);
+      setData(orders);
+      setEvents(evts);
+      setError(orders.error ? `Odoo no responde (${orders.error}). Mostrando últimos datos.` : null);
       setLastUpdated(new Date());
+
+      // Alert on events that arrived since the previous refresh (not on first load)
+      if (seenEvents.current) {
+        const fresh = evts.filter(e => !seenEvents.current.has(e.id));
+        const critical = fresh.find(e => e.priority === 'critico');
+        if (critical) {
+          setAlertEvent(critical);
+          if (soundRef.current) beep(3, 988);
+        } else if (soundRef.current && fresh.some(e => e.priority === 'alto')) {
+          beep(1, 660);
+        }
+      }
+      seenEvents.current = new Set(evts.map(e => e.id));
     } catch (err) {
       console.error(err);
       setError('Error al cargar los pedidos. ¿Está el servidor corriendo?');
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchOrders();
-    const interval = setInterval(fetchOrders, 300000); // 5 minutes refresh
-    return () => clearInterval(interval);
   }, []);
 
-  // Filter helpers
-  const getNavalOrders = (list) => list.filter(o => o.type_id && o.type_id[0] === 1);
-  const getMercaOrders = (list) => list.filter(o => o.type_id && o.type_id[0] === 5);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [load]);
 
-  const OrderSection = ({ title, orders, colorClass }) => {
-    if (orders.length === 0) return null;
-    return (
-      <div className="mb-6">
-        <h4 className={`text-md font-bold mb-3 ${colorClass}`}>
-          {title}
-          <span className="ml-2 text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">{orders.length}</span>
-        </h4>
-        <div className="space-y-4">
-          {orders.map((order, i) => (
-            <OrderCard key={order.id} order={order} delay={i} />
-          ))}
-        </div>
-      </div>
-    );
+  // Clear the highlight of an order opened from a notification link
+  useEffect(() => {
+    if (!focusOrderId) return;
+    clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => setFocusOrderId(null), FOCUS_MS);
+    return () => clearTimeout(focusTimer.current);
+  }, [focusOrderId]);
+
+  // Browsers only allow audio after a user interaction
+  useEffect(() => {
+    if (!soundOn) return;
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    return () => window.removeEventListener('pointerdown', unlock);
+  }, [soundOn]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    soundRef.current = next;
+    try { localStorage.setItem('sound', next ? 'on' : 'off'); } catch { /* ignore */ }
+    if (next) { unlockAudio(); beep(1); }
   };
 
-  return (
-    <div className="min-h-screen bg-frusangar-light text-stone-800 font-sans selection:bg-frusangar-green selection:text-white">
+  const selectOrder = useCallback((orderId) => {
+    setAlertEvent(null);
+    setFocusOrderId(orderId);
+    const day = data && DAYS.find(d => data.orders[d.key]?.some(o => o.id === orderId));
+    if (day) setTab(day.key);
+  }, [data]);
 
+  const closeAlert = useCallback(() => setAlertEvent(null), []);
+
+  const ordersOf = (key) => data?.orders?.[key] || [];
+  const dateOf = (key) => data?.days?.find(d => d.key === key)?.date;
+  const pendingToday = ordersOf('today').filter(o => o.state !== 'cancel' && o.pickingStatus !== 'validado').length;
+  const importantEvents = events.filter(e => (e.priority === 'critico' || e.priority === 'alto') && Date.now() - new Date(e.ts) < 3 * 3600_000).length;
+
+  return (
+    <div className="min-h-screen lg:h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100 text-gray-900">
       {/* Header */}
-      {/* Header */}
-      <header className="bg-white/95 backdrop-blur-md shadow-sm sticky top-0 z-20 border-b border-stone-200/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex justify-between items-center">
-          <div className="flex items-center">
-            {/* Logo */}
-            <div className="mr-4 flex-shrink-0">
-              <img src={logo} alt="Frusangar Logo" className="h-10 w-auto object-contain drop-shadow-sm" />
-            </div>
-            <div className="hidden md:block h-8 w-px bg-stone-200 mx-4"></div>
-            <h1 className="text-xl font-display font-bold tracking-tight text-frusangar-text">
-              Visualizador de Pedidos
-            </h1>
+      <header className="bg-white/90 backdrop-blur-md sticky top-0 z-30 border-b border-gray-200/50 shadow-sm">
+        <div className="px-4 lg:px-6 py-3 flex justify-between items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <img src={logo} alt="Frusangar" className="h-9 lg:h-10 w-auto object-contain" />
+            <div className="hidden sm:block h-8 w-px bg-stone-200"></div>
+            <span className="hidden sm:block text-xs font-semibold tracking-widest text-gray-400 uppercase">
+              Pedidos Navalcarnero
+            </span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-stone-50 rounded-lg border border-stone-200/50 text-xs font-medium text-stone-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-frusangar-green animate-pulse"></span>
-              Actualizado: {lastUpdated.toLocaleTimeString()}
-            </span>
+          <div className="flex items-center gap-2 lg:gap-4">
+            <div className="hidden md:flex bg-white rounded-full px-4 py-2 border border-gray-100 shadow-sm gap-5">
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase font-bold text-gray-400">Hoy por hacer</span>
+                <span className="text-sm font-black leading-none text-frusangar-orange">{pendingToday}</span>
+              </div>
+              <div className="w-px bg-gray-200"></div>
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase font-bold text-gray-400">Última actualización</span>
+                <span className="text-sm font-bold leading-none">
+                  {lastUpdated ? lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                </span>
+              </div>
+            </div>
+
             <button
-              onClick={fetchOrders}
-              disabled={loading}
-              className="p-2.5 rounded-xl bg-frusangar-green hover:bg-frusangar-dark text-white shadow-lg shadow-frusangar-green/20 transition-all active:scale-95 disabled:opacity-50 disabled:shadow-none"
-              title="Actualizar pedidos"
+              onClick={toggleSound}
+              className="p-3 bg-white text-gray-500 hover:text-frusangar-dark rounded-full shadow-sm border border-gray-100 active:scale-95"
+              title={soundOn ? 'Sonido de avisos activado' : 'Activar sonido de avisos (pantalla de planta)'}
             >
-              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+              {soundOn ? <Volume2 size={20} className="text-frusangar-green" /> : <VolumeX size={20} />}
+            </button>
+            <NotificationsButton />
+            <button
+              onClick={load}
+              className="p-3 bg-white text-gray-500 hover:text-frusangar-dark rounded-full shadow-sm border border-gray-100 active:scale-95"
+              disabled={loading}
+              title="Recargar datos"
+            >
+              <RefreshCw size={20} className={loading ? 'animate-spin text-frusangar-green' : ''} />
             </button>
           </div>
         </div>
+
+        {/* Mobile tabs */}
+        <nav className="lg:hidden flex border-t border-gray-100 bg-white">
+          {TABS.map(t => {
+            const count = t.key === 'events' ? importantEvents : ordersOf(t.key).filter(o => o.state !== 'cancel').length;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`flex-1 py-2.5 text-sm font-bold border-b-2 transition-colors ${tab === t.key ? 'border-frusangar-green text-frusangar-dark' : 'border-transparent text-stone-400'}`}
+              >
+                {t.label}
+                {count > 0 && (
+                  <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${t.key === 'events' ? 'bg-red-600 text-white' : 'bg-stone-100 text-stone-600'}`}>{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 flex items-center shadow-sm">
-            <AlertCircle className="mr-2" size={20} />
-            {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-          {/* Column 1: Mañana */}
-          <section>
-            <div className="flex items-center mb-6 pb-2 border-b-2 border-frusangar-green/30">
-              <Calendar className="mr-2 text-frusangar-green" size={24} />
-              <h2 className="text-2xl font-bold text-frusangar-dark">Mañana</h2>
-              <span className="ml-auto text-sm font-bold text-frusangar-dark bg-white border border-frusangar-green/20 px-3 py-1 rounded-full shadow-sm">
-                {dates.tomorrow || 'Cargando...'}
-              </span>
-            </div>
-
-            {loading && !orders.tomorrow.length ? (
-              <div className="animate-pulse space-y-4">
-                {[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-xl shadow-sm border border-frusangar-green/10"></div>)}
-              </div>
-            ) : orders.tomorrow.length === 0 ? (
-              <div className="bg-white/50 p-12 rounded-xl text-center border-dashed border-2 border-stone-200">
-                <p className="text-frusangar-brown font-medium">No hay pedidos programados para mañana.</p>
-              </div>
-            ) : (
-              <>
-                <OrderSection title="Navalcarnero" orders={getNavalOrders(orders.tomorrow)} colorClass="text-emerald-700" />
-                <OrderSection title="Mercamadrid Interno" orders={getMercaOrders(orders.tomorrow)} colorClass="text-blue-700" />
-              </>
-            )}
-          </section>
-
-          {/* Column 2: Pasado Mañana */}
-          <section>
-            <div className="flex items-center mb-6 pb-2 border-b-2 border-frusangar-orange/30">
-              <Calendar className="mr-2 text-frusangar-orange" size={24} />
-              <h2 className="text-2xl font-bold text-frusangar-dark">Pasado Mañana</h2>
-              <span className="ml-auto text-sm font-bold text-frusangar-dark bg-white border border-frusangar-orange/20 px-3 py-1 rounded-full shadow-sm">
-                {dates.dayAfter || 'Cargando...'}
-              </span>
-            </div>
-
-            {loading && !orders.dayAfter.length ? (
-              <div className="animate-pulse space-y-4">
-                {[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-xl shadow-sm border border-frusangar-orange/10"></div>)}
-              </div>
-            ) : orders.dayAfter.length === 0 ? (
-              <div className="bg-white/50 p-12 rounded-xl text-center border-dashed border-2 border-stone-200">
-                <p className="text-frusangar-brown font-medium">No hay pedidos programados para pasado mañana.</p>
-              </div>
-            ) : (
-              <>
-                <OrderSection title="Navalcarnero" orders={getNavalOrders(orders.dayAfter)} colorClass="text-emerald-700" />
-                <OrderSection title="Mercamadrid Interno" orders={getMercaOrders(orders.dayAfter)} colorClass="text-blue-700" />
-              </>
-            )}
-          </section>
-
+      {error && (
+        <div className="mx-4 lg:mx-6 mt-3 p-3 bg-red-50 text-red-700 rounded-lg border border-red-200 flex items-center text-sm">
+          <AlertCircle className="mr-2 shrink-0" size={18} />
+          {error}
         </div>
+      )}
+
+      {/* Main: 3 day columns + changes panel */}
+      <main className="flex-1 min-h-0 p-3 lg:p-5 grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-[1fr_auto] xl:grid-rows-1 xl:grid-cols-[1fr_1fr_1fr_340px] gap-4 lg:gap-5">
+        {DAYS.map(d => (
+          <DayColumn
+            key={d.key}
+            title={d.title}
+            date={dateOf(d.key)}
+            orders={ordersOf(d.key)}
+            accent={d.accent}
+            loading={loading && !data}
+            focusOrderId={focusOrderId}
+            className={tab === d.key ? 'flex' : 'hidden lg:flex'}
+          />
+        ))}
+        <ChangesPanel
+          events={events}
+          onSelectOrder={selectOrder}
+          className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 lg:max-h-64 xl:max-h-none xl:col-span-1`}
+        />
       </main>
+
+      <CriticalAlert event={alertEvent} onClose={closeAlert} onOpen={selectOrder} />
     </div>
   );
 }

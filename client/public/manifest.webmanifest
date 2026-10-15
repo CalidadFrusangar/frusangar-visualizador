@@ -1,0 +1,17 @@
+{
+  "name": "Frusangar · Pedidos Navalcarnero",
+  "short_name": "Pedidos",
+  "description": "Visualizador de pedidos y avisos de cambios para Navalcarnero",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F7FAFC",
+  "theme_color": "#3A5E22",
+  "lang": "es",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

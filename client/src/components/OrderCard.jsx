@@ -1,90 +1,139 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Package, Box, Truck } from 'lucide-react'; // Changed icons for better semantic
+import { ChevronDown, Package, Box, AlertTriangle, Loader2 } from 'lucide-react';
+import { PRIORITY_STYLE, PICKING_STYLE, maxPriority, timeAgo } from '../priority';
 
-const OrderCard = ({ order, delay }) => {
-    const [expanded, setExpanded] = useState(false);
+const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
 
-    // Calculate totals - Filter out sections/notes
-    // CRITICAL FIX: Use product_packaging_qty for Bultos
-    const totalBultos = order.lines?.reduce((sum, line) => {
-        // Skip notes/sections or lines with no product
-        const isNote = line.display_type || !line.product_id || (Array.isArray(line.product_id) && line.product_id.length === 0);
-        if (isNote) return sum;
+const fmt = (n, digits = 2) => Number(n || 0).toLocaleString('es-ES', { maximumFractionDigits: digits });
+const amount = (v, useBultos) => (v ? (useBultos ? `${fmt(v.bultos, 1)} bultos` : `${fmt(v.qty)} ${v.uom || ''}`) : '');
+const beforeAfter = ({ before, after }) => {
+    const useBultos = !!(before.bultos && after.bultos && before.bultos !== after.bultos);
+    return `${amount(before, useBultos)} → ${amount(after, useBultos)}`;
+};
 
-        return sum + (line.product_packaging_qty || 0);
-    }, 0) || 0;
+// Latest change per current line, plus lines removed recently
+function lineChanges(order) {
+    const byLine = new Map();
+    const removed = [];
+    const currentProducts = new Set(order.lines.filter(isProductLine).map(l => l.product_id[0]));
+    for (const event of order.recentEvents || []) {
+        for (const c of event.changes) {
+            if (c.lineId && !byLine.has(c.lineId)) byLine.set(c.lineId, c);
+            if (c.type === 'LINEA_ELIMINADA' && !currentProducts.has(c.productId) && !removed.some(r => r.productId === c.productId)) {
+                removed.push(c);
+            }
+        }
+    }
+    return { byLine, removed };
+}
 
-    // Total Quantities (Units)
-    const totalUnits = order.lines?.reduce((sum, line) => {
-        const isNote = line.display_type || !line.product_id || (Array.isArray(line.product_id) && line.product_id.length === 0);
-        if (isNote) return sum;
+const LINE_ROW_STYLE = {
+    LINEA_AÑADIDA: 'bg-emerald-50',
+    AUMENTO: 'bg-emerald-50',
+    DISMINUCION: 'bg-orange-50',
+};
 
-        return sum + (line.product_uom_qty || 0);
-    }, 0) || 0;
+const OrderCard = ({ order, dimmed = false, focused = false }) => {
+    const [userToggled, setUserToggled] = useState(null);
+    const expanded = userToggled ?? focused;
+    const ref = useRef(null);
 
-    const totalLines = order.lines?.filter(l => !l.display_type && l.product_id && (Array.isArray(l.product_id) ? l.product_id.length > 0 : true)).length || 0;
+    useEffect(() => {
+        if (focused) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, [focused]);
 
-    // Extract order reference from name (e.g., "PVNAV/10488" from full name)
+    const productLines = order.lines?.filter(isProductLine) || [];
+    const totalBultos = productLines.reduce((sum, l) => sum + (l.product_packaging_qty || 0), 0);
+    const totalUnits = productLines.reduce((sum, l) => sum + (l.product_uom_qty || 0), 0);
+
     const orderRef = order.name?.split(' ')[0] || order.name;
     const customerName = order.partner_id ? order.partner_id[1] : 'Cliente desconocido';
+    const cancelled = order.state === 'cancel';
 
-    // Format date properly if available
-    const formatDate = (dateString) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleString('es-ES', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
+    const relevantEvents = (order.recentEvents || []).filter(e => e.priority !== 'info');
+    const changePriority = relevantEvents.length ? maxPriority(relevantEvents) : null;
+    const changeStyle = changePriority ? PRIORITY_STYLE[changePriority] : null;
+    const picking = PICKING_STYLE[order.pickingStatus] || PICKING_STYLE.pendiente;
+    const { byLine, removed } = lineChanges(order);
+
+    const deliveryTime = new Date(order.deliveryDate).toLocaleString('es-ES', {
+        timeZone: 'Europe/Madrid', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
 
     return (
         <motion.div
+            ref={ref}
+            layout
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: delay * 0.05 }}
-            className={`group bg-white rounded-xl shadow-card hover:shadow-card-hover border border-stone-100/80 transition-all duration-300 overflow-hidden mb-4 ${expanded ? 'ring-2 ring-frusangar-green/20' : ''}`}
+            transition={{ duration: 0.3 }}
+            className={`group bg-white rounded-xl shadow-card hover:shadow-card-hover border border-stone-100/80 transition-all duration-300 overflow-hidden mb-4
+                ${changeStyle ? `ring-2 ${changeStyle.ring}` : expanded ? 'ring-2 ring-frusangar-green/20' : ''}
+                ${focused ? 'ring-4 ring-frusangar-green' : ''}
+                ${dimmed || cancelled ? 'opacity-60 hover:opacity-100' : ''}`}
         >
+            {/* Change banner */}
+            {changeStyle && !cancelled && (
+                <div className={`px-5 py-1.5 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide ${changeStyle.chip} ${changePriority === 'critico' ? 'animate-pulse' : ''}`}>
+                    <span className="flex items-center gap-1.5">
+                        <AlertTriangle size={13} />
+                        Modificado · {changeStyle.label}
+                        {relevantEvents[0]?.wasValidated && ' · tras validar albarán'}
+                    </span>
+                    <span className="font-semibold normal-case opacity-90">{timeAgo(relevantEvents[0].ts)}</span>
+                </div>
+            )}
+            {cancelled && (
+                <div className="px-5 py-1.5 text-[11px] font-black uppercase tracking-widest bg-red-600 text-white">
+                    ✖ Pedido cancelado · no preparar
+                </div>
+            )}
+
             {/* Collapsed view */}
-            <div
-                onClick={() => setExpanded(!expanded)}
-                className="cursor-pointer relative"
-            >
+            <div onClick={() => setUserToggled(!expanded)} className="cursor-pointer relative">
                 <div className="p-5 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
 
                     {/* Left: Info */}
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-frusangar-light text-frusangar-dark tracking-wide uppercase border border-frusangar-green/10">
                                 {orderRef}
                             </span>
-                            <span className="text-xs text-stone-400 font-medium">
-                                {formatDate(order.commitment_date || order.date_order)}
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${picking.className}`}>
+                                <span>{picking.icon}</span>{picking.label}
                             </span>
+                            {order.changePending && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700" title="Se está modificando en Odoo">
+                                    <Loader2 size={11} className="animate-spin" /> editándose
+                                </span>
+                            )}
+                            <span className="text-xs text-stone-400 font-medium">{deliveryTime}</span>
                         </div>
 
-                        <h3 className="text-lg font-display font-bold text-frusangar-text truncate pr-4 group-hover:text-frusangar-green transition-colors">
+                        <h3 className={`text-lg font-display font-bold text-frusangar-text truncate pr-4 group-hover:text-frusangar-green transition-colors ${cancelled ? 'line-through' : ''}`}>
                             {customerName}
                         </h3>
 
                         <div className="flex items-center gap-4 mt-3 text-xs text-frusangar-muted">
                             <div className="flex items-center gap-1.5" title="Total Líneas">
-                                <span className="bg-stone-100 p-1 rounded-md text-stone-500">
-                                    <Box size={14} />
-                                </span>
-                                <span className="font-medium">{totalLines} Lín.</span>
+                                <span className="bg-stone-100 p-1 rounded-md text-stone-500"><Box size={14} /></span>
+                                <span className="font-medium">{productLines.length} Lín.</span>
                             </div>
                             <div className="flex items-center gap-1.5" title="Total Unidades">
-                                <span className="bg-stone-100 p-1 rounded-md text-stone-500">
-                                    <Package size={14} />
-                                </span>
+                                <span className="bg-stone-100 p-1 rounded-md text-stone-500"><Package size={14} /></span>
                                 <span className="font-medium">{Math.round(totalUnits).toLocaleString('es-ES')} Uds.</span>
                             </div>
                         </div>
+
+                        {/* Latest change summary, visible without expanding */}
+                        {changeStyle && !cancelled && (
+                            <ul className={`mt-3 text-xs rounded-lg border px-3 py-2 space-y-0.5 ${changeStyle.soft}`}>
+                                {relevantEvents[0].changes.filter(c => c.priority !== 'info').slice(0, 4).map((c, i) => (
+                                    <li key={i} className="font-semibold">{c.text}</li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
 
                     {/* Right: Bultos Big Metric */}
@@ -133,7 +182,6 @@ const OrderCard = ({ order, delay }) => {
                                     </thead>
                                     <tbody className="divide-y divide-stone-100 bg-white">
                                         {order.lines && order.lines.map((line) => {
-                                            // Handle Sections
                                             if (line.display_type === 'line_section') {
                                                 return (
                                                     <tr key={line.id} className="bg-stone-100 border-y border-stone-200">
@@ -144,10 +192,7 @@ const OrderCard = ({ order, delay }) => {
                                                 );
                                             }
 
-                                            // Handle Notes (or missing product_id, or empty array product_id)
-                                            const isNote = line.display_type === 'line_note' || !line.product_id || (Array.isArray(line.product_id) && line.product_id.length === 0);
-
-                                            if (isNote) {
+                                            if (!isProductLine(line)) {
                                                 return (
                                                     <tr key={line.id} className="bg-amber-50/40">
                                                         <td colSpan="6" className="py-2.5 px-6 text-stone-500 italic text-[11px]">
@@ -157,67 +202,85 @@ const OrderCard = ({ order, delay }) => {
                                                 );
                                             }
 
-                                            // Regular Product Lines
-                                            const productName = Array.isArray(line.product_id) ? line.product_id[1] : 'Producto desconocido';
-                                            const productRef = Array.isArray(line.product_id) && line.product_id[1].match(/\[([^\]]+)\]/)
-                                                ? line.product_id[1].match(/\[([^\]]+)\]/)[1]
-                                                : '-';
+                                            const productName = line.product_id[1];
+                                            const refMatch = productName.match(/\[([^\]]+)\]/);
+                                            const productRef = refMatch ? refMatch[1] : '-';
 
-                                            // Handle product_packaging_id being false/empty
                                             const packagingName = (Array.isArray(line.product_packaging_id) && line.product_packaging_id.length > 0)
                                                 ? line.product_packaging_id[1]
                                                 : (Array.isArray(line.product_uom) ? line.product_uom[1] : '-');
 
                                             const palletFormat = (Array.isArray(line.palet_id) && line.palet_id.length > 0) ? line.palet_id[1] : '-';
+                                            const change = byLine.get(line.id);
 
                                             return (
-                                                <tr key={line.id} className="hover:bg-frusangar-light/20 transition-colors group/row">
-                                                    {/* Product */}
+                                                <tr key={line.id} className={`hover:bg-frusangar-light/20 transition-colors group/row ${change ? LINE_ROW_STYLE[change.type] || '' : ''}`}>
                                                     <td className="py-3 px-5 pl-6 align-top">
                                                         <div className="font-bold text-stone-800 text-xs mb-1 group-hover/row:text-frusangar-dark transition-colors tracking-tight">
                                                             {productName.split('] ')[1] || productName}
+                                                            {change?.type === 'LINEA_AÑADIDA' && <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase">Nuevo</span>}
                                                         </div>
                                                         <div className="text-[11px] text-stone-500 font-mono font-medium">
                                                             Ref: {productRef}
                                                         </div>
+                                                        {change && change.before && (
+                                                            <div className={`mt-1 text-[11px] font-bold ${change.type === 'AUMENTO' ? 'text-emerald-700' : 'text-orange-700'}`}>
+                                                                Antes: {beforeAfter(change)}
+                                                            </div>
+                                                        )}
                                                     </td>
 
-                                                    {/* Bultos - Highlighted */}
                                                     <td className="py-3 px-2 text-right font-bold text-frusangar-dark">
-                                                        {line.product_packaging_qty ? Number(line.product_packaging_qty).toLocaleString('es-ES', { maximumFractionDigits: 1 }) : '-'}
+                                                        {line.product_packaging_qty ? fmt(line.product_packaging_qty, 1) : '-'}
                                                     </td>
 
-                                                    {/* Empaquetado */}
                                                     <td className="py-3 px-4 text-xs font-medium text-stone-600">
                                                         {packagingName}
-                                                        {packagingName === '-' && <span className="text-stone-300">-</span>}
                                                     </td>
 
-                                                    {/* Palets */}
                                                     <td className="py-3 px-2 text-right text-stone-500 font-mono text-[10px]">
                                                         {line.palet_qty > 0 ? Number(line.palet_qty).toFixed(2).replace('.', ',') : '-'}
                                                     </td>
 
-                                                    {/* Formato Palet */}
                                                     <td className="py-3 px-4 text-[10px] text-stone-400 uppercase">
                                                         {palletFormat}
                                                     </td>
 
-                                                    {/* Cantidad */}
                                                     <td className="py-3 px-5 pr-6 text-right font-black text-stone-900 text-sm">
-                                                        {line.product_uom_qty ? Number(line.product_uom_qty).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '-'}
+                                                        {line.product_uom_qty ? fmt(line.product_uom_qty) : '-'}
                                                     </td>
                                                 </tr>
                                             );
                                         })}
+
+                                        {/* Lines removed recently */}
+                                        {removed.map((c) => (
+                                            <tr key={`removed-${c.productId}`} className="bg-red-50">
+                                                <td className="py-3 px-5 pl-6 align-top text-red-700">
+                                                    <div className="font-bold text-xs line-through">{c.product}</div>
+                                                    <div className="text-[10px] font-black uppercase">Eliminado</div>
+                                                </td>
+                                                <td className="py-3 px-2 text-right font-bold text-red-700 line-through">
+                                                    {c.before?.bultos ? fmt(c.before.bultos, 1) : '-'}
+                                                </td>
+                                                <td colSpan="3"></td>
+                                                <td className="py-3 px-5 pr-6 text-right font-black text-red-700 line-through">
+                                                    {fmt(c.before?.qty)}
+                                                </td>
+                                            </tr>
+                                        ))}
                                     </tbody>
                                 </table>
                             </div>
 
                             {/* Footer inside expanded */}
                             <div className="px-6 py-3 bg-stone-50 border-t border-stone-200/60 flex justify-between items-center text-[10px] text-frusangar-muted">
-                                <span>ID: {order.id}</span>
-                                <button className="text-frusangar-green font-bold hover:underline" onClick={(e) => { e.stopPropagation(); setExpanded(false); }}>
+                                <span>
+                                    {order.pickings?.length
+                                        ? order.pickings.map(p => `${p.name} (${p.state === 'done' ? 'hecho' : 'pendiente'})`).join(' · ')
+                                        : 'Sin albarán'}
+                                </span>
+                                <button className="text-frusangar-green font-bold hover:underline" onClick={(e) => { e.stopPropagation(); setUserToggled(false); }}>
                                     Cerrar Detalle
                                 </button>
                             </div>
