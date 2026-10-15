@@ -14,6 +14,8 @@ import { demoEvent, DEMO_COUNT } from './demoAlerts';
 import logo from './assets/logo.png';
 
 const REFRESH_MS = 20_000;
+// Alerts sync faster: a new alert, or one marked as seen elsewhere, reaches every screen quickly
+const EVENTS_MS = 5_000;
 const FOCUS_MS = 10_000;
 // A critical alert repeats (beeps + voice) until someone presses "Visto"
 const REPEAT_MS = 30_000;
@@ -76,29 +78,47 @@ function Dashboard() {
   }, []);
   const focusTimer = useRef(null);
 
+  const handleEvents = useCallback((evts) => {
+    setEvents(evts);
+    // Seen on another screen or phone: close it here too
+    setAlertEvent(a => {
+      if (a && !a.test && evts.find(e => e.id === a.id)?.ack) {
+        stopSpeaking();
+        return null;
+      }
+      return a;
+    });
+    setAckTarget(t => (t && !t.event.test && evts.find(e => e.id === t.event.id)?.ack ? null : t));
+
+    // Alert on events that arrived since the previous check (not on first load), unless already seen
+    if (seenEvents.current) {
+      const fresh = evts.filter(e => !seenEvents.current.has(e.id) && !e.ack);
+      const critical = fresh.find(e => e.priority === 'critico');
+      const important = fresh.find(e => e.priority === 'alto');
+      if (critical) {
+        setAlertEvent(critical);
+        announce(critical);
+      } else if (important) {
+        announce(important);
+      }
+    }
+    seenEvents.current = new Set(evts.map(e => e.id));
+  }, [announce]);
+
+  const syncEvents = useCallback(async () => {
+    try {
+      handleEvents(await fetchEvents(60));
+    } catch { /* the next full load reports errors */ }
+  }, [handleEvents]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [orders, evts] = await Promise.all([fetchOrders(), fetchEvents(60)]);
       setData(orders);
-      setEvents(evts);
-      setAlertEvent(a => (a && !a.test && evts.find(e => e.id === a.id)?.ack ? null : a));
+      handleEvents(evts);
       setError(orders.error ? `Odoo no responde (${orders.error}). Mostrando últimos datos.` : null);
       setLastUpdated(new Date());
-
-      // Alert on events that arrived since the previous refresh (not on first load)
-      if (seenEvents.current) {
-        const fresh = evts.filter(e => !seenEvents.current.has(e.id));
-        const critical = fresh.find(e => e.priority === 'critico');
-        const important = fresh.find(e => e.priority === 'alto');
-        if (critical) {
-          setAlertEvent(critical);
-          announce(critical);
-        } else if (important) {
-          announce(important);
-        }
-      }
-      seenEvents.current = new Set(evts.map(e => e.id));
 
     } catch (err) {
       console.error(err);
@@ -106,13 +126,14 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [announce]);
+  }, [handleEvents]);
 
   useEffect(() => {
     load();
     const interval = setInterval(load, REFRESH_MS);
-    return () => clearInterval(interval);
-  }, [load]);
+    const eventsInterval = setInterval(syncEvents, EVENTS_MS);
+    return () => { clearInterval(interval); clearInterval(eventsInterval); };
+  }, [load, syncEvents]);
 
   // Clear the highlight of an order opened from a notification link
   useEffect(() => {

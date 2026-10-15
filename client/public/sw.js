@@ -9,13 +9,16 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { title: 'Frusangar', body: event.data ? event.data.text() : '' };
   }
-  const critical = data.priority === 'critico';
+  // "Seen by": replaces the pending notification of that order without sound or vibration
+  const ack = data.type === 'ack';
+  const critical = data.priority === 'critico' && !ack;
   event.waitUntil(self.registration.showNotification(data.title || 'Cambio en pedido', {
     body: data.body || '',
     tag: data.tag,
-    renotify: true,
+    renotify: !ack,
+    silent: ack,
     requireInteraction: critical,
-    vibrate: critical ? [300, 100, 300, 100, 300] : [200],
+    vibrate: ack ? [] : critical ? [300, 100, 300, 100, 300] : [200],
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     data: { url: data.url || '/' },

@@ -33,15 +33,14 @@ function addEvents(events) {
   state.events = [...events, ...state.events].slice(0, MAX_EVENTS);
 }
 
-// Who saw an alert: the first acknowledgement is kept
+// Who saw an alert: the first acknowledgement is kept. created = this call set it.
 function ackEvent(id, employee, now = new Date()) {
   const event = state.events.find(e => e.id === id);
-  if (!event) return null;
-  if (!event.ack) {
-    event.ack = { employeeId: employee.id, name: employee.name, at: now.toISOString() };
-    save();
-  }
-  return event;
+  if (!event) return { event: null, created: false };
+  if (event.ack) return { event, created: false };
+  event.ack = { employeeId: employee.id, name: employee.name, at: now.toISOString() };
+  save();
+  return { event, created: true };
 }
 
 function upsertSubscription(sub) {

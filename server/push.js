@@ -37,23 +37,47 @@ function payloadFor(event) {
   });
 }
 
+const hhmm = (iso) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+
+// Same tag as the original notification, so it replaces it silently on each phone
+function ackPayloadFor(event) {
+  return JSON.stringify({
+    type: 'ack',
+    title: `✔ Visto · ${event.orderName} · ${event.dayLabel}`,
+    body: `${event.partner}
+Visto por ${event.ack.name} a las ${hhmm(event.ack.at)}`,
+    tag: `order-${event.orderId}`,
+    priority: event.priority,
+    url: `/?order=${event.orderId}`,
+  });
+}
+
+async function send(subs, payload, urgency) {
+  await Promise.all(subs.map(async (s) => {
+    try {
+      await webpush.sendNotification(s.subscription, payload, { TTL: 3600, urgency });
+    } catch (err) {
+      if (err.statusCode === 404 || err.statusCode === 410) store.removeSubscription(s.endpoint);
+      else console.error('Push error:', err.statusCode, err.body || err.message);
+    }
+  }));
+}
+
+const subscribersFor = (event) => store.state.subscriptions
+  .filter(s => PRIORITY_RANK[event.priority] >= PRIORITY_RANK[s.minPriority || 'normal']);
+
+async function sendAck(event) {
+  if (event.priority === 'info') return;
+  await send(subscribersFor(event), ackPayloadFor(event), 'normal');
+}
+
 async function sendEvents(events) {
   const subs = store.state.subscriptions;
   if (!subs.length) return;
   for (const event of events) {
     if (event.priority === 'info') continue;
-    const payload = payloadFor(event);
-    await Promise.all(subs
-      .filter(s => PRIORITY_RANK[event.priority] >= PRIORITY_RANK[s.minPriority || 'normal'])
-      .map(async (s) => {
-        try {
-          await webpush.sendNotification(s.subscription, payload, { TTL: 3600, urgency: event.priority === 'critico' ? 'high' : 'normal' });
-        } catch (err) {
-          if (err.statusCode === 404 || err.statusCode === 410) store.removeSubscription(s.endpoint);
-          else console.error('Push error:', err.statusCode, err.body || err.message);
-        }
-      }));
+    await send(subscribersFor(event), payloadFor(event), event.priority === 'critico' ? 'high' : 'normal');
   }
 }
 
-module.exports = { publicKey: vapid.publicKey, sendEvents, payloadFor };
+module.exports = { publicKey: vapid.publicKey, sendEvents, sendAck, payloadFor, ackPayloadFor };

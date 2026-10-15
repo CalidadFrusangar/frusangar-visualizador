@@ -9,6 +9,7 @@ const { fetchOrdersByDay } = require('./fetchOrders');
 const { PRIORITY_RANK } = require('./diff');
 const auth = require('./auth');
 const { fetchEmployees } = require('./employees');
+const odooNotes = require('./odooNotes');
 
 const app = express();
 // Render (and ngrok) sit in front as a proxy: needed for req.secure and the client IP
@@ -93,10 +94,17 @@ app.post('/api/events/:id/ack', async (req, res) => {
   }
   const employee = employees.find(e => e.id === Number(req.body?.employeeId));
   if (!employee) return res.status(400).json({ error: 'Empleado no válido' });
-  const event = store.ackEvent(req.params.id, employee);
+  const { event, created } = store.ackEvent(req.params.id, employee);
   if (!event) return res.status(404).json({ error: 'Aviso no encontrado' });
-  console.log(`Aviso ${event.orderName} visto por ${event.ack.name}`);
   res.json(event);
+  if (created) {
+    console.log(`Aviso ${event.orderName} visto por ${event.ack.name}`);
+    // Replace the pending notification on every phone with "seen by"
+    push.sendAck(event).catch(err => console.error('Push ack error:', err.message));
+    odooNotes.postAckNote(event)
+      .then(posted => posted && console.log(`Nota en Odoo: ${event.orderName} visto por ${event.ack.name}`))
+      .catch(err => console.error('Nota en Odoo falló:', err.message));
+  }
 });
 
 app.get('/api/push/public-key', (req, res) => {
