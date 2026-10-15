@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Calendar, CheckCircle2 } from 'lucide-react';
 import OrderCard from './OrderCard';
+import ProductSummary from './ProductSummary';
 
 const STATUS_ORDER = { pendiente: 0, parcial: 1, validado: 2 };
 
@@ -20,6 +21,12 @@ const SECTIONS = [
     { typeId: 5, title: 'Mercamadrid Interno', colorClass: 'text-blue-700' },
 ];
 
+const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
+const sumLines = (orders, field) => orders.reduce((sum, o) => sum + (o.lines || []).filter(isProductLine).reduce((s, l) => s + (l[field] || 0), 0), 0);
+const fmt = (n, digits = 0) => Number(n || 0).toLocaleString('es-ES', { maximumFractionDigits: digits });
+
+const VIEWS = [{ key: 'orders', label: 'Pedidos' }, { key: 'products', label: 'Productos' }];
+
 const formatDate = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
 
 const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = false, className = '' }) => {
@@ -28,6 +35,10 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = 
     const progress = active.length ? Math.round((done / active.length) * 100) : 0;
     const withBoxes = active.filter(o => ['declarada', 'sin_declarar'].includes(o.boxes?.status));
     const undeclared = withBoxes.filter(o => o.boxes.status === 'sin_declarar').length;
+    const totalBultos = sumLines(active, 'product_packaging_qty');
+    const pendingBultos = sumLines(active.filter(o => o.pickingStatus !== 'validado'), 'product_packaging_qty');
+    const totalPalets = sumLines(active, 'palet_qty');
+    const [view, setView] = useState('orders');
 
     return (
         <section className={`flex-col min-w-0 ${className}`}>
@@ -56,6 +67,24 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = 
                         )}
                     </div>
                 )}
+                {active.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-stone-500">
+                        <span>Bultos <b className="text-frusangar-dark text-sm">{fmt(totalBultos)}</b></span>
+                        <span>Por preparar <b className={`text-sm ${pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>{fmt(pendingBultos)}</b></span>
+                        {totalPalets > 0 && <span>Palés <b className="text-stone-700 text-sm">{fmt(totalPalets, 1)}</b></span>}
+                        <div className="ml-auto flex bg-stone-100 rounded-full p-0.5 text-[11px] font-bold">
+                            {VIEWS.map(v => (
+                                <button
+                                    key={v.key}
+                                    onClick={() => setView(v.key)}
+                                    className={`px-2.5 py-1 rounded-full transition-colors ${view === v.key ? 'bg-white shadow text-stone-800' : 'text-stone-500'}`}
+                                >
+                                    {v.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div>
@@ -63,6 +92,8 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, wide = 
                     <div className="animate-pulse space-y-4">
                         {[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-xl shadow-sm border border-stone-100"></div>)}
                     </div>
+                ) : view === 'products' && orders.length > 0 ? (
+                    <ProductSummary orders={orders} />
                 ) : orders.length === 0 ? (
                     <div className="bg-white/50 p-10 rounded-xl text-center border-dashed border-2 border-stone-200">
                         <p className="text-stone-500 font-medium">No hay pedidos para este día.</p>

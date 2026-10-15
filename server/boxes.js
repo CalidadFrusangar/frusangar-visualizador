@@ -1,4 +1,5 @@
 const { executeKw } = require('./odoo');
+const { fromOdooUtc } = require('./dates');
 
 // Returnable box products in Odoo, same catalogue as the "PEDIR EN GO RAMP EUROPOOL" project
 // (declaracion.RETURNABLE_BOXES). A delivery note must be declared when the lots it ships come
@@ -67,11 +68,59 @@ function boxStatus(pickings, boxesById) {
   const withBoxes = pickings.filter(p => boxesById[p.id]?.length || (p.state === 'done' && p.x_cajas_declaradas));
   if (!withBoxes.length) return null;
   const declared = withBoxes.filter(p => p.x_cajas_declaradas);
+  const undeclared = withBoxes.filter(p => !p.x_cajas_declaradas);
   return {
-    status: declared.length === withBoxes.length ? 'declarada' : 'sin_declarar',
+    status: undeclared.length ? 'sin_declarar' : 'declarada',
     boxes: [...new Set(withBoxes.flatMap(p => boxesById[p.id] || []))],
     detail: declared.map(p => p.x_cajas_declaracion).filter(Boolean),
+    undeclared: undeclared.map(p => ({
+      id: p.id,
+      name: p.name,
+      boxes: boxesById[p.id] || [],
+      doneAt: p.date_done ? fromOdooUtc(p.date_done).toISOString() : null,
+    })),
   };
 }
 
-module.exports = { boxesByPicking, boxStatus, RETURNABLE_BOXES };
+const hhmm = (iso) => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+
+/**
+ * Events for delivery notes with returnable boxes still undeclared `afterMs` after validation.
+ * `alerted` = { [pickingId]: isoDate } of notes already notified (mutated: one alert per note).
+ */
+function boxAlertEvents(ordersByDay, alerted, now = new Date(), afterMs = 120 * 60_000, dayLabels = {}) {
+  const events = [];
+  for (const [dayKey, list] of Object.entries(ordersByDay)) {
+    for (const o of list) {
+      if (o.state === 'cancel') continue;
+      for (const p of o.boxes?.undeclared || []) {
+        if (!p.doneAt || alerted[p.id] || now - new Date(p.doneAt) < afterMs) continue;
+        alerted[p.id] = now.toISOString();
+        const text = `${p.boxes.join(' / ') || 'Cajas retornables'} sin declarar · albarán ${p.name} validado a las ${hhmm(p.doneAt)}`;
+        events.push({
+          id: `${o.id}-cajas-${p.id}`,
+          ts: now.toISOString(),
+          orderId: o.id,
+          orderName: o.name,
+          partner: o.partner_id?.[1] || '',
+          typeId: o.type_id?.[0] ?? null,
+          dayKey,
+          dayLabel: dayLabels[dayKey] || dayKey,
+          deliveryDate: o.deliveryDate,
+          wasValidated: false,
+          priority: 'alto',
+          changes: [{ type: 'CAJAS_SIN_DECLARAR', priority: 'alto', text }],
+          summary: text,
+        });
+      }
+    }
+  }
+  return events;
+}
+
+// Forget notes alerted more than a week ago
+function pruneAlerted(alerted, now = new Date()) {
+  for (const [id, ts] of Object.entries(alerted)) if (now - new Date(ts) > 7 * 24 * 3600_000) delete alerted[id];
+}
+
+module.exports = { boxesByPicking, boxStatus, boxAlertEvents, pruneAlerted, RETURNABLE_BOXES };

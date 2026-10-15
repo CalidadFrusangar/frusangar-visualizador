@@ -2,13 +2,16 @@
 const store = require('./store');
 const push = require('./push');
 const { fetchOrdersByDay, fetchOrderStatus } = require('./fetchOrders');
-const { toSnapshot, diffOrder, buildEvent } = require('./diff');
+const { toSnapshot, diffOrder, buildEvent, DAY_LABEL } = require('./diff');
+const { boxAlertEvents, pruneAlerted } = require('./boxes');
 
 const POLL_MS = Number(process.env.POLL_MS) || 30_000;
 // Salespeople save several times in a row: wait for this much quiet before notifying...
 const QUIET_MS = Number(process.env.NOTIFY_QUIET_MS) || 60_000;
 // ...but never hold a change longer than this
 const MAX_WAIT_MS = 5 * 60_000;
+// Returnable boxes must be declared within this time after validating the delivery note
+const BOX_ALERT_MS = (Number(process.env.BOX_ALERT_MIN) || 120) * 60_000;
 
 let latest = null;          // last fetch result, served by /api/orders
 let lastError = null;
@@ -37,8 +40,9 @@ async function detectChanges(result, now) {
     for (const o of list) current[o.id] = toSnapshot(o);
   }
 
-  // First run: just record the baseline, no notifications
+  // First run: just record the baseline, no notifications (old undeclared boxes included)
   if (!state.snapshots) {
+    boxAlertEvents(result.orders, state.boxAlerts, now, BOX_ALERT_MS);
     state.snapshots = current;
     state.windowEnd = result.windowEnd;
     store.save();
@@ -85,6 +89,8 @@ async function detectChanges(result, now) {
   state.windowEnd = result.windowEnd;
 
   const events = flushPending(now);
+  pruneAlerted(state.boxAlerts, now);
+  events.push(...boxAlertEvents(result.orders, state.boxAlerts, now, BOX_ALERT_MS, DAY_LABEL));
   if (events.length) {
     store.addEvents(events);
     for (const e of events) console.log(`[${e.priority.toUpperCase()}] ${e.orderName} (${e.dayLabel}): ${e.summary}`);

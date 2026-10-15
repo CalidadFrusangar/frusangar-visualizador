@@ -6,7 +6,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const MAX_EVENTS = 200;
 
-const empty = () => ({ snapshots: null, windowEnd: null, pending: {}, events: [], subscriptions: [] });
+const empty = () => ({ snapshots: null, windowEnd: null, pending: {}, events: [], subscriptions: [], boxAlerts: {} });
 
 let state = empty();
 

@@ -126,6 +126,8 @@ function Dashboard() {
 
   const ordersOf = (key) => data?.orders?.[key] || [];
   const dateOf = (key) => data?.days?.find(d => d.key === key)?.date;
+  const undeclaredBoxes = DAYS.flatMap(d => ordersOf(d.key))
+    .filter(o => o.state !== 'cancel' && o.boxes?.status === 'sin_declarar').length;
   const pendingToday = ordersOf('today').filter(o => o.state !== 'cancel' && o.pickingStatus !== 'validado').length;
   const importantEvents = events.filter(e => (e.priority === 'critico' || e.priority === 'alto') && Date.now() - new Date(e.ts) < 3 * 3600_000).length;
 
@@ -145,6 +147,14 @@ function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2 lg:gap-3">
+            {undeclaredBoxes > 0 && (
+              <span
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold animate-pulse"
+                title="Albaranes validados con cajas retornables (Euro Pool / IFCO) sin declarar"
+              >
+                📦 {undeclaredBoxes} sin declarar
+              </span>
+            )}
             <span className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-stone-50 rounded-lg border border-stone-200/50 text-xs font-medium text-stone-500">
               Hoy por hacer: <span className="font-bold text-frusangar-orange">{pendingToday}</span>
             </span>

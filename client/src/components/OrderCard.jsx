@@ -51,7 +51,9 @@ const OrderCard = ({ order, dimmed = false, focused = false }) => {
     const customerName = order.partner_id ? order.partner_id[1] : 'Cliente desconocido';
     const cancelled = order.state === 'cancel';
 
-    const relevantEvents = (order.recentEvents || []).filter(e => e.priority !== 'info');
+    // Box declaration reminders are not order changes: they show in the box badge instead
+    const relevantEvents = (order.recentEvents || [])
+        .filter(e => e.priority !== 'info' && !e.changes.every(c => c.type === 'CAJAS_SIN_DECLARAR'));
     const changePriority = relevantEvents.length ? maxPriority(relevantEvents) : null;
     const changeStyle = changePriority ? PRIORITY_STYLE[changePriority] : null;
     const picking = PICKING_STYLE[order.pickingStatus] || PICKING_STYLE.pendiente;
