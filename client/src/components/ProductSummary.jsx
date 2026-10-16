@@ -125,6 +125,18 @@ const asKg = (r, q) => {
     return k != null ? `${fmt(q * k)} kg` : `${fmt(q, 2)} ${r.uom}`;
 };
 const ceilBultos = (b) => Math.ceil(b - 1e-6);
+const isKgUom = (r) => /^kg$/i.test((r.uom || '').trim());
+// Quantity in the product's own unit («594 bolsas»); empty for products sold in kg
+const unitsText = (r, q) => {
+    if (isKgUom(r)) return '';
+    const unit = (r.uom || '').toLowerCase();
+    return `${fmt(q, 2)} ${unit}${Math.abs(q - 1) > 1e-6 && unit && !/s$/.test(unit) ? 's' : ''}`;
+};
+// «149 bultos · 594 bolsas» for a missing quantity
+const missingDetail = (r) => {
+    const b = missingBultos(r);
+    return [b != null && `${fmt(ceilBultos(b))} bultos`, unitsText(r, r.missing)].filter(Boolean).join(' · ');
+};
 
 // «Fabricar» cell: what almacén 4 still has to receive for this row, after earlier days and rows
 function MissingCell({ r }) {
@@ -139,11 +151,11 @@ function MissingCell({ r }) {
             </span>
         );
     }
-    const b = missingBultos(r);
+    const detail = missingDetail(r);
     return (
         <span title={`Pendiente ${asKg(r, r.pendingQty)} · ${stockText} disponible para este día`}>
             <span className="inline-block bg-red-600 text-white font-black text-sm rounded-md px-1.5 py-0.5">{asKg(r, r.missing)}</span>
-            {b != null && <span className="block text-[10px] font-bold text-red-600 mt-0.5">{fmt(ceilBultos(b))} bultos</span>}
+            {detail && <span className="block text-[10px] font-bold text-red-600 mt-0.5">{detail}</span>}
             <span className="block text-[10px] text-stone-400">{stockText}</span>
         </span>
     );
@@ -179,7 +191,7 @@ function ManufacturePanel({ rows }) {
                 </div>
             </div>
             <div className="space-y-1.5">
-                {items.map(({ r, kg, b }) => {
+                {items.map(({ r, kg }) => {
                     const pct = r.pendingQty ? Math.min(100, (Math.min(r.available, r.pendingQty) / r.pendingQty) * 100) : 0;
                     return (
                         <div key={r.key} className="bg-white rounded-lg px-3 py-2 shadow-sm">
@@ -190,15 +202,15 @@ function ManufacturePanel({ rows }) {
                                 </div>
                                 <div className="text-right shrink-0">
                                     <div className="font-black text-red-600 text-base leading-tight">{kg != null ? `${fmt(kg)} kg` : `${fmt(r.missing, 2)} ${r.uom}`}</div>
-                                    {b != null && <div className="text-[10px] font-bold text-red-500">{fmt(ceilBultos(b))} bultos</div>}
+                                    {missingDetail(r) && <div className="text-[10px] font-bold text-red-500">{missingDetail(r)}</div>}
                                 </div>
                             </div>
                             <div className="mt-1.5 h-2 rounded-full bg-red-200 overflow-hidden" title={`El almacén 4 cubre el ${Math.round(pct)}%`}>
                                 <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }}></div>
                             </div>
                             <div className="mt-0.5 flex justify-between gap-2 text-[10px] text-stone-500">
-                                <span>Hay <b className="text-emerald-700">{asKg(r, r.available)}</b> en alm. 4</span>
-                                <span>Hacen falta <b className="text-stone-700">{asKg(r, r.pendingQty)}</b></span>
+                                <span>Hay <b className="text-emerald-700">{asKg(r, r.available)}</b>{unitsText(r, r.available) && ` (${unitsText(r, r.available)})`} en alm. 4</span>
+                                <span>Hacen falta <b className="text-stone-700">{asKg(r, r.pendingQty)}</b>{unitsText(r, r.pendingQty) && ` (${unitsText(r, r.pendingQty)})`}</span>
                             </div>
                         </div>
                     );
@@ -373,7 +385,7 @@ const ProductSummary = ({ orders, available = null, compact = false }) => {
                         <div className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${hoverRow.missing > 1e-6 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
                             Almacén 4: {asKg(hoverRow, hoverRow.available)} disponibles para este día ·{' '}
                             {hoverRow.missing > 1e-6
-                                ? `faltan ${asKg(hoverRow, hoverRow.missing)}${missingBultos(hoverRow) != null ? ` (${fmt(ceilBultos(missingBultos(hoverRow)))} bultos)` : ''}`
+                                ? `faltan ${asKg(hoverRow, hoverRow.missing)}${missingDetail(hoverRow) ? ` (${missingDetail(hoverRow)})` : ''}`
                                 : 'cubierto'}
                         </div>
                     )}
