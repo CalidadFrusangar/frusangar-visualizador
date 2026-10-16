@@ -7,6 +7,15 @@ export const PRIORITY_STYLE = {
     info: { label: 'Info', chip: 'bg-emerald-600 text-white', soft: 'bg-emerald-50 border-emerald-200 text-emerald-800', ring: 'ring-emerald-400', dot: 'bg-emerald-500' },
 };
 
+// New orders get their own colour; the urgency still drives sound, voice, full-screen alert and push
+export const NEW_ORDER_STYLE = {
+    label: 'Pedido nuevo', chip: 'bg-violet-600 text-white', soft: 'bg-violet-50 border-violet-200 text-violet-900', ring: 'ring-violet-500', dot: 'bg-violet-500',
+};
+
+export const isNewOrderEvent = (e) => !!e?.changes?.some(c => c.type === 'NUEVO_PEDIDO');
+
+export const eventStyle = (e) => (isNewOrderEvent(e) ? NEW_ORDER_STYLE : PRIORITY_STYLE[e.priority]);
+
 export const PICKING_STYLE = {
     validado: { label: 'Albarán hecho', icon: '✔', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
     parcial: { label: 'Albarán parcial', icon: '◐', className: 'bg-amber-100 text-amber-800 border-amber-300' },

@@ -36,6 +36,7 @@ En Odoo, una acción automatizada genera un texto de WhatsApp al validar pedido/
   - 🟠 alto: en **mañana**, reducciones, líneas eliminadas, cancelación, cambio de fecha.
   - 🔵 normal: ampliaciones y pedidos nuevos de mañana/pasado.
   - 🟢 info: albarán validado (sin push).
+  - Aparte de la urgencia, los **pedidos nuevos** (`NUEVO_PEDIDO`) se pintan en **morado** con «🆕 Pedido nuevo» (tarjeta, panel, alerta a pantalla completa y título del push); los cambios mantienen los colores de urgencia. Estilos en `client/src/priority.js` (`NEW_ORDER_STYLE`, `eventStyle`).
 - `poller.js`: cada 30 s; agrupa los cambios de un pedido hasta 60 s de calma (máx. 5 min) y compara la línea base con lo último, así las ediciones que se anulan no avisan. Ignora los pedidos que solo aparecen por avance de la ventana a medianoche.
 - `store.js`: persistencia en JSON (interfaz pensada para cambiarla por una BD).
 - `push.js`: Web Push (`web-push`, VAPID); cada suscripción tiene `minPriority`.

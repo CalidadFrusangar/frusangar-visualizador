@@ -6,6 +6,7 @@ const { PRIORITY_RANK } = require('./diff');
 
 const PRIORITY_ICON = { critico: '🔴', alto: '🟠', normal: '🔵', info: '🟢' };
 const PRIORITY_LABEL = { critico: 'CRÍTICO', alto: 'IMPORTANTE', normal: 'Cambio', info: 'Info' };
+const isNewOrder = (event) => event.changes.some(c => c.type === 'NUEVO_PEDIDO');
 
 // VAPID keys from env; otherwise generated once and kept in the data dir
 function loadVapidKeys() {
@@ -29,7 +30,9 @@ webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:calidad@frusangar.c
 
 function payloadFor(event) {
   return JSON.stringify({
-    title: `${PRIORITY_ICON[event.priority]} ${PRIORITY_LABEL[event.priority]} · ${event.orderName} · ${event.dayLabel}`,
+    title: isNewOrder(event)
+      ? `${event.priority === 'critico' ? '🔴 ' : ''}🆕 PEDIDO NUEVO · ${event.orderName} · ${event.dayLabel}`
+      : `${PRIORITY_ICON[event.priority]} ${PRIORITY_LABEL[event.priority]} · ${event.orderName} · ${event.dayLabel}`,
     body: `${event.partner}\n${event.changes.map(c => c.text).join('\n')}`,
     tag: `order-${event.orderId}`,
     priority: event.priority,

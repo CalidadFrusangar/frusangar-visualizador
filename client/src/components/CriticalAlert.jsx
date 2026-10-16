@@ -1,11 +1,13 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Sparkles } from 'lucide-react';
+import { isNewOrderEvent } from '../priority';
 import OdooLink from './OdooLink';
 
 // Full-screen alert for critical changes (for the production-line TV).
 // It stays (and repeats its sound) until someone presses "Visto".
 const CriticalAlert = ({ event, onClose, onOpen }) => {
+    const isNew = isNewOrderEvent(event);
     return (
         <AnimatePresence>
             {event && (
@@ -13,7 +15,7 @@ const CriticalAlert = ({ event, onClose, onOpen }) => {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-50 bg-red-900/70 backdrop-blur-sm flex items-center justify-center p-6"
+                    className={`fixed inset-0 z-50 backdrop-blur-sm flex items-center justify-center p-6 ${isNew ? 'bg-violet-950/70' : 'bg-red-900/70'}`}
                 >
                     <motion.div
                         initial={{ scale: 0.9, y: 20 }}
@@ -21,10 +23,12 @@ const CriticalAlert = ({ event, onClose, onOpen }) => {
                         className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div className="bg-red-600 text-white px-8 py-5 flex items-center gap-4 animate-pulse">
-                            <AlertTriangle size={44} />
+                        <div className={`text-white px-8 py-5 flex items-center gap-4 animate-pulse ${isNew ? 'bg-violet-600' : 'bg-red-600'}`}>
+                            {isNew ? <Sparkles size={44} /> : <AlertTriangle size={44} />}
                             <div>
-                                <div className="text-sm font-black uppercase tracking-widest opacity-90">{event.test && 'PRUEBA · '}Cambio crítico · {event.dayLabel}</div>
+                                <div className="text-sm font-black uppercase tracking-widest opacity-90">
+                                    {event.test && 'PRUEBA · '}{isNew ? `Pedido nuevo para ${event.dayLabel.toLowerCase()}` : `Cambio crítico · ${event.dayLabel}`}
+                                </div>
                                 <div className="text-3xl md:text-4xl font-black">{event.orderName}</div>
                             </div>
                         </div>
@@ -43,7 +47,7 @@ const CriticalAlert = ({ event, onClose, onOpen }) => {
                                 )}
                                 <button onClick={onClose} className="px-6 py-3 rounded-xl bg-stone-800 text-white text-lg font-black">✔ Visto</button>
                                 {event.orderId && (
-                                    <button onClick={() => onOpen(event.orderId)} className="px-5 py-3 rounded-xl bg-red-600 text-white font-bold">Ver pedido</button>
+                                    <button onClick={() => onOpen(event.orderId)} className={`px-5 py-3 rounded-xl text-white font-bold ${isNew ? 'bg-violet-600' : 'bg-red-600'}`}>Ver pedido</button>
                                 )}
                             </div>
                         </div>

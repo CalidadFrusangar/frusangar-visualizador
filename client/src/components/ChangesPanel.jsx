@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Bell, Archive, ArchiveRestore } from 'lucide-react';
-import { PRIORITY_STYLE, clockTime } from '../priority';
+import { PRIORITY_STYLE, eventStyle, isNewOrderEvent, clockTime } from '../priority';
 import OdooLink from './OdooLink';
 
 // Critical and important alerts can be marked as seen by a Navalcarnero employee
@@ -65,7 +65,8 @@ const ChangesPanel = ({ events, onSelectOrder, onAck, onArchive, className = '' 
                     </p>
                 )}
                 {visible.map(e => {
-                    const style = PRIORITY_STYLE[e.priority];
+                    const style = eventStyle(e);
+                    const isNew = isNewOrderEvent(e);
                     return (
                         <div
                             key={e.id}
@@ -77,8 +78,15 @@ const ChangesPanel = ({ events, onSelectOrder, onAck, onArchive, className = '' 
                             className={`w-full text-left rounded-lg border p-2.5 cursor-pointer transition-transform active:scale-[0.98] hover:shadow-md ${style.soft} ${e.archivedAt ? 'opacity-70' : ''}`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${style.chip}`}>
-                                    {e.test && 'Prueba · '}{style.label}
+                                <span className="flex items-center gap-1">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${style.chip}`}>
+                                        {e.test && 'Prueba · '}{isNew ? '🆕 ' : ''}{style.label}
+                                    </span>
+                                    {isNew && isImportant(e) && (
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide ${PRIORITY_STYLE[e.priority].chip}`}>
+                                            {PRIORITY_STYLE[e.priority].label}
+                                        </span>
+                                    )}
                                 </span>
                                 <span className="flex items-center gap-1.5">
                                     <span className="text-[11px] font-semibold opacity-70">{clockTime(e.ts)}</span>

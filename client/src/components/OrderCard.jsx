@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Package, Box, AlertTriangle, Loader2 } from 'lucide-react';
-import { PRIORITY_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo } from '../priority';
+import { ChevronDown, Package, Box, AlertTriangle, Loader2, Sparkles } from 'lucide-react';
+import { PRIORITY_STYLE, NEW_ORDER_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo, isNewOrderEvent } from '../priority';
 import OdooLink from './OdooLink';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
@@ -62,7 +62,10 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
     const relevantEvents = (order.recentEvents || [])
         .filter(e => e.priority !== 'info' && !e.changes.every(c => c.type === 'CAJAS_SIN_DECLARAR'));
     const changePriority = relevantEvents.length ? maxPriority(relevantEvents) : null;
-    const changeStyle = changePriority ? PRIORITY_STYLE[changePriority] : null;
+    // A new order keeps its own colour until it gets modified afterwards
+    const isNew = relevantEvents.length > 0 && isNewOrderEvent(relevantEvents[0]);
+    const changeStyle = !changePriority ? null : isNew ? NEW_ORDER_STYLE : PRIORITY_STYLE[changePriority];
+    const urgent = changePriority === 'critico' || changePriority === 'alto';
     const picking = PICKING_STYLE[order.pickingStatus] || PICKING_STYLE.pendiente;
     const box = order.boxes && !cancelled ? BOX_STYLE[order.boxes.status] : null;
     const { byLine, removed } = lineChanges(order);
@@ -86,11 +89,23 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
             {/* Change banner */}
             {changeStyle && !cancelled && (
                 <div className={`px-5 py-1.5 flex items-center justify-between text-[11px] font-bold uppercase tracking-wide ${changeStyle.chip} ${changePriority === 'critico' ? 'animate-pulse' : ''}`}>
-                    <span className="flex items-center gap-1.5">
-                        <AlertTriangle size={13} />
-                        Modificado · {changeStyle.label}
-                        {relevantEvents[0]?.wasValidated && ' · tras validar albarán'}
-                    </span>
+                    {isNew ? (
+                        <span className="flex items-center gap-1.5">
+                            <Sparkles size={13} />
+                            Pedido nuevo
+                            {urgent && (
+                                <span className={`ml-1 px-1.5 rounded text-[10px] ${changePriority === 'critico' ? 'bg-red-600' : 'bg-orange-500'}`}>
+                                    {PRIORITY_STYLE[changePriority].label}
+                                </span>
+                            )}
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-1.5">
+                            <AlertTriangle size={13} />
+                            Modificado · {changeStyle.label}
+                            {relevantEvents[0]?.wasValidated && ' · tras validar albarán'}
+                        </span>
+                    )}
                     <span className="font-semibold normal-case opacity-90">{timeAgo(relevantEvents[0].ts)}</span>
                 </div>
             )}
@@ -144,7 +159,7 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
                         </div>
 
                         {/* Latest change summary, visible without expanding */}
-                        {changeStyle && !cancelled && (
+                        {changeStyle && !cancelled && !isNew && (
                             <ul className={`mt-3 text-xs rounded-lg border px-3 py-2 space-y-0.5 ${changeStyle.soft}`}>
                                 {relevantEvents[0].changes.filter(c => c.priority !== 'info').slice(0, 4).map((c, i) => (
                                     <li key={i} className="font-semibold">{c.text}</li>
