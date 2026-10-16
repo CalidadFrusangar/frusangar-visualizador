@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { withShortages, missingBultos } from '../stock';
+import { withShortages, missingBultos, missingKg, kgPerUnit } from '../stock';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
 const fmt = (n, digits = 0) => Number(n || 0).toLocaleString('es-ES', { maximumFractionDigits: digits });
@@ -119,11 +119,18 @@ function cardPosition(rect, rows) {
     return { left, top, maxHeight: window.innerHeight - 24 };
 }
 
+// A row quantity in kg when the product weight is known, otherwise in its own unit
+const asKg = (r, q) => {
+    const k = kgPerUnit(r);
+    return k != null ? `${fmt(q * k)} kg` : `${fmt(q, 2)} ${r.uom}`;
+};
+const ceilBultos = (b) => Math.ceil(b - 1e-6);
+
 // «Fabricar» cell: what almacén 4 still has to receive for this row, after earlier days and rows
 function MissingCell({ r }) {
     if (r.missing == null) return <span className="text-stone-300" title="No se fabrica en planta (sin lista de materiales en Odoo)">—</span>;
     if (!r.pendingQty) return <span className="text-emerald-600 font-bold" title="Todo el producto de este día ya está en albaranes hechos">✔</span>;
-    const stockText = `Alm. 4: ${fmt(r.available, 2)} ${r.uom}`;
+    const stockText = `Alm. 4: ${asKg(r, r.available)}`;
     if (r.missing <= 1e-6) {
         return (
             <span title={`Hay stock suficiente en el almacén 4 para lo pendiente (${stockText})`}>
@@ -134,11 +141,70 @@ function MissingCell({ r }) {
     }
     const b = missingBultos(r);
     return (
-        <span title={`Pendiente ${fmt(r.pendingQty, 2)} ${r.uom} · ${stockText} disponible para este día`}>
-            <span className="font-black text-red-600">{b != null ? `${fmt(Math.ceil(b - 1e-6))} b.` : `${fmt(r.missing, 2)} ${r.uom}`}</span>
-            {b != null && <span className="block text-[10px] font-bold text-red-500">{fmt(r.missing, 2)} {r.uom}</span>}
+        <span title={`Pendiente ${asKg(r, r.pendingQty)} · ${stockText} disponible para este día`}>
+            <span className="inline-block bg-red-600 text-white font-black text-sm rounded-md px-1.5 py-0.5">{asKg(r, r.missing)}</span>
+            {b != null && <span className="block text-[10px] font-bold text-red-600 mt-0.5">{fmt(ceilBultos(b))} bultos</span>}
             <span className="block text-[10px] text-stone-400">{stockText}</span>
         </span>
+    );
+}
+
+// Panel on top of the table: what is still to be made, biggest first, with how much of it almacén 4 covers
+function ManufacturePanel({ rows }) {
+    const relevant = rows.filter(r => r.missing != null && r.pendingQty > 0);
+    if (!relevant.length) return null;
+    const items = relevant.filter(r => r.missing > 1e-6)
+        .map(r => ({ r, kg: missingKg(r), b: missingBultos(r) }))
+        .sort((a, b) => (b.kg ?? -1) - (a.kg ?? -1) || b.r.missing - a.r.missing);
+    if (!items.length) {
+        return (
+            <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-emerald-800 font-bold text-sm">
+                🏭 Todo fabricado: el almacén 4 cubre todo lo pendiente de este día
+            </div>
+        );
+    }
+    const totalKg = items.reduce((sum, i) => sum + (i.kg || 0), 0);
+    const kgUnknown = items.some(i => i.kg == null);
+    const totalBultos = items.reduce((sum, i) => sum + (i.b != null ? ceilBultos(i.b) : 0), 0);
+    return (
+        <div className="mb-3 rounded-xl border-2 border-red-200 bg-red-50/70 p-3">
+            <div className="flex items-end justify-between gap-2 mb-2">
+                <div>
+                    <div className="font-black text-red-700 text-sm uppercase tracking-wide">🏭 Falta por fabricar</div>
+                    <div className="text-[10px] text-red-600/80">Pendiente de preparar menos lo que hay en el almacén 4</div>
+                </div>
+                <div className="text-right shrink-0">
+                    <div className="text-2xl font-black text-red-700 leading-none">{fmt(totalKg)} kg{kgUnknown ? ' + ?' : ''}</div>
+                    <div className="text-[11px] font-bold text-red-600">{totalBultos > 0 ? `${fmt(totalBultos)} bultos · ` : ''}{items.length} prod.</div>
+                </div>
+            </div>
+            <div className="space-y-1.5">
+                {items.map(({ r, kg, b }) => {
+                    const pct = r.pendingQty ? Math.min(100, (Math.min(r.available, r.pendingQty) / r.pendingQty) * 100) : 0;
+                    return (
+                        <div key={r.key} className="bg-white rounded-lg px-3 py-2 shadow-sm">
+                            <div className="flex items-baseline justify-between gap-2">
+                                <div className="min-w-0">
+                                    <div className="font-bold text-stone-800 text-xs truncate">{r.name}</div>
+                                    <div className="text-[10px] text-stone-500 truncate">{r.packaging}</div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <div className="font-black text-red-600 text-base leading-tight">{kg != null ? `${fmt(kg)} kg` : `${fmt(r.missing, 2)} ${r.uom}`}</div>
+                                    {b != null && <div className="text-[10px] font-bold text-red-500">{fmt(ceilBultos(b))} bultos</div>}
+                                </div>
+                            </div>
+                            <div className="mt-1.5 h-2 rounded-full bg-red-200 overflow-hidden" title={`El almacén 4 cubre el ${Math.round(pct)}%`}>
+                                <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }}></div>
+                            </div>
+                            <div className="mt-0.5 flex justify-between gap-2 text-[10px] text-stone-500">
+                                <span>Hay <b className="text-emerald-700">{asKg(r, r.available)}</b> en alm. 4</span>
+                                <span>Hacen falta <b className="text-stone-700">{asKg(r, r.pendingQty)}</b></span>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
@@ -151,7 +217,9 @@ const ProductSummary = ({ orders, available = null, compact = false }) => {
     const rows = withShortages(summarizeProducts(orders), available);
     const showStock = !!available;
     const colCount = 4 + (compact ? 0 : 2) + (showStock ? 1 : 0);
-    const totalMissingBultos = rows.reduce((sum, r) => sum + (r.missing > 1e-6 ? Math.ceil((missingBultos(r) ?? 0) - 1e-6) : 0), 0);
+    const totalMissingBultos = rows.reduce((sum, r) => sum + (r.missing > 1e-6 ? ceilBultos(missingBultos(r) ?? 0) : 0), 0);
+    const totalMissingKg = rows.reduce((sum, r) => sum + (missingKg(r) || 0), 0);
+    const totalMissingKgUnknown = rows.some(r => missingKg(r) == null);
     const total = rows.reduce((t, r) => ({
         bultos: t.bultos + r.bultos,
         pendingBultos: t.pendingBultos + r.pendingBultos,
@@ -170,6 +238,8 @@ const ProductSummary = ({ orders, available = null, compact = false }) => {
     const hoverRow = hover && openKey !== hover.key ? rows.find(r => r.key === hover.key) : null;
 
     return (
+        <div>
+        {showStock && <ManufacturePanel rows={rows} />}
         <div className="bg-white rounded-xl shadow-card border border-stone-100/80 overflow-hidden">
             <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left">
@@ -268,8 +338,13 @@ const ProductSummary = ({ orders, available = null, compact = false }) => {
                             </td>
                             {showStock && (
                                 <td className={`py-2.5 px-2 text-right whitespace-nowrap ${totalMissingBultos ? 'text-red-600' : 'text-emerald-600'}`}
-                                    title="Bultos que faltan por fabricar (productos con empaquetado)">
-                                    {totalMissingBultos ? `${fmt(totalMissingBultos)} b.` : '✔'}
+                                    title="Kg y bultos que faltan por fabricar">
+                                    {totalMissingKg > 0 || totalMissingKgUnknown ? (
+                                        <>
+                                            <div className="text-sm">{fmt(totalMissingKg)} kg{totalMissingKgUnknown ? ' + ?' : ''}</div>
+                                            {totalMissingBultos > 0 && <div className="text-[10px]">{fmt(totalMissingBultos)} bultos</div>}
+                                        </>
+                                    ) : '✔'}
                                 </td>
                             )}
                             <td className="py-2.5 px-4"></td>
@@ -296,15 +371,16 @@ const ProductSummary = ({ orders, available = null, compact = false }) => {
                     <SplitList row={hoverRow} />
                     {showStock && hoverRow.pendingQty > 0 && (
                         <div className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${hoverRow.missing > 1e-6 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                            Almacén 4: {fmt(hoverRow.available, 2)} {hoverRow.uom} disponibles para este día ·{' '}
+                            Almacén 4: {asKg(hoverRow, hoverRow.available)} disponibles para este día ·{' '}
                             {hoverRow.missing > 1e-6
-                                ? `faltan ${fmt(hoverRow.missing, 2)} ${hoverRow.uom}${missingBultos(hoverRow) != null ? ` (${fmt(Math.ceil(missingBultos(hoverRow) - 1e-6))} bultos)` : ''}`
+                                ? `faltan ${asKg(hoverRow, hoverRow.missing)}${missingBultos(hoverRow) != null ? ` (${fmt(ceilBultos(missingBultos(hoverRow)))} bultos)` : ''}`
                                 : 'cubierto'}
                         </div>
                     )}
                     <div className="mt-2 text-[10px] text-stone-400">⏳ albarán pendiente · ✔ albarán hecho · Pulsa la fila para dejarlo abierto</div>
                 </div>
             )}
+        </div>
         </div>
     );
 };

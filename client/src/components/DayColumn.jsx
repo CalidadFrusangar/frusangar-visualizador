@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Calendar, CheckCircle2 } from 'lucide-react';
 import OrderCard from './OrderCard';
 import ProductSummary from './ProductSummary';
-import { pendingQtyByProduct } from '../stock';
+import { shortageSummary } from '../stock';
 
 const STATUS_ORDER = { pendiente: 0, parcial: 1, validado: 2 };
 
@@ -36,16 +36,6 @@ const formatRange = (from, to) => {
 };
 const madridYmd = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' });
 
-// Manufactured products still short in almacén 4 for this column
-function shortage(orders, available) {
-    if (!available) return null;
-    let products = 0;
-    for (const [productId, qty] of pendingQtyByProduct(orders)) {
-        if (available.has(productId) && qty - available.get(productId) > 1e-6) products++;
-    }
-    return products;
-}
-
 const OrderList = ({ list, wide, focusOrderId, focusSeq }) => (
     <div className={wide ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-6 items-start' : ''}>
         {list.map(order => (
@@ -69,7 +59,7 @@ const DayColumn = ({ title, date, dateTo, orders, accent, loading, focusOrderId,
     const totalBultos = sumLines(active, 'product_packaging_qty');
     const pendingBultos = sumLines(active.filter(o => o.pickingStatus !== 'validado'), 'product_packaging_qty');
     const totalPalets = sumLines(active, 'palet_qty');
-    const shortProducts = shortage(active, available);
+    const short = shortageSummary(active, available);
     const [view, setView] = useState('orders');
 
     // Opening an order from an alert shows the order list, not the product summary
@@ -112,13 +102,13 @@ const DayColumn = ({ title, date, dateTo, orders, accent, loading, focusOrderId,
                         <span>Bultos <b className="text-frusangar-dark text-sm">{fmt(totalBultos)}</b></span>
                         <span>Por preparar <b className={`text-sm ${pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>{fmt(pendingBultos)}</b></span>
                         {totalPalets > 0 && <span>Palés <b className="text-stone-700 text-sm">{fmt(totalPalets, 1)}</b></span>}
-                        {shortProducts != null && pendingBultos > 0 && (
+                        {short && pendingBultos > 0 && (
                             <button
                                 onClick={() => setView('products')}
-                                title="Productos pendientes que no tienen stock suficiente en el almacén 4 (Productos terminados). Pulsa para ver el detalle."
-                                className={`px-2 py-0.5 rounded-full font-bold ${shortProducts ? 'bg-red-600 text-white' : 'bg-emerald-100 text-emerald-800'}`}
+                                title={`${short.products ? `${short.products} productos sin stock suficiente` : 'Todo lo pendiente está'} en el almacén 4 (Productos terminados). Pulsa para ver el detalle.`}
+                                className={`px-2.5 py-0.5 rounded-full font-bold ${short.products ? 'bg-red-600 text-white text-sm shadow-sm' : 'bg-emerald-100 text-emerald-800'}`}
                             >
-                                🏭 {shortProducts ? `Fabricar: ${shortProducts} prod.` : 'Todo fabricado'}
+                                🏭 {short.products ? `Fabricar ${fmt(short.kg)} kg${short.kgUnknown ? ' + ?' : ''}` : 'Todo fabricado'}
                             </button>
                         )}
                         <div className="ml-auto flex bg-stone-100 rounded-full p-0.5 text-[11px] font-bold">

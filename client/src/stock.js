@@ -51,3 +51,44 @@ export function withShortages(rows, available) {
 
 // Missing quantity in bultos, using the row's own qty-per-bulto; null when the row has no packaging
 export const missingBultos = (r) => (r.bultos && r.qty ? r.missing / (r.qty / r.bultos) : null);
+
+// Kg per unit of a row (from the product weights on its lines); null when some line has no weight
+export const kgPerUnit = (r) => (!r.kgMissing && r.qty ? r.kg / r.qty : null);
+
+// Missing quantity in kg; null when the weight is unknown
+export const missingKg = (r) => {
+    if (!(r.missing > 1e-6)) return 0;
+    const k = kgPerUnit(r);
+    return k == null ? null : r.missing * k;
+};
+
+/**
+ * What a column still has to manufacture: { products, kg, kgUnknown } (kg = missing × product weight).
+ * null when the stock could not be read.
+ */
+export function shortageSummary(orders, available) {
+    if (!available) return null;
+    const qty = new Map();
+    const kg = new Map(); // productId -> kg of those lines, null when some line has no weight
+    for (const o of orders) {
+        if (o.state === 'cancel' || o.pickingStatus === 'validado') continue;
+        for (const l of (o.lines || []).filter(isProductLine)) {
+            const id = l.product_id[0];
+            qty.set(id, (qty.get(id) || 0) + (l.product_uom_qty || 0));
+            const prev = kg.has(id) ? kg.get(id) : 0;
+            kg.set(id, prev == null || l.kg == null ? null : prev + l.kg);
+        }
+    }
+    let products = 0;
+    let totalKg = 0;
+    let kgUnknown = false;
+    for (const [id, q] of qty) {
+        if (!available.has(id)) continue;
+        const missing = q - available.get(id);
+        if (missing <= 1e-6) continue;
+        products++;
+        if (kg.get(id) == null || !q) kgUnknown = true;
+        else totalKg += missing * (kg.get(id) / q);
+    }
+    return { products, kg: totalKg, kgUnknown };
+}
