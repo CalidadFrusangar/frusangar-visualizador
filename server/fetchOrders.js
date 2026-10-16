@@ -12,6 +12,17 @@ const LINE_FIELDS = ['product_id', 'product_uom_qty', 'product_uom', 'name', 'or
 const PICKING_FIELDS = ['name', 'state', 'picking_type_code', 'date_done', 'sale_id',
   'x_cajas_declaradas', 'x_cajas_declaracion', 'write_date'];
 
+// Read records in batches: from Render, big XML-RPC requests have stalled until Odoo timed out
+const READ_BATCH = 100;
+
+async function readInBatches(model, ids, fields) {
+  const result = [];
+  for (let i = 0; i < ids.length; i += READ_BATCH) {
+    result.push(...await executeKw(model, 'read', [ids.slice(i, i + READ_BATCH), fields]));
+  }
+  return result;
+}
+
 // Product weight (field «Peso», kg per unit of the product's UoM), cached 10 min
 const WEIGHT_TTL_MS = 10 * 60 * 1000;
 const weightCache = new Map(); // productId -> { weight, uomId, at }
@@ -67,8 +78,8 @@ async function fetchOrdersByDay(now = new Date()) {
   const pickingIds = orders.flatMap(o => o.picking_ids || []);
 
   const [lines, pickings] = await Promise.all([
-    lineIds.length ? executeKw('sale.order.line', 'read', [lineIds, LINE_FIELDS]) : [],
-    pickingIds.length ? executeKw('stock.picking', 'read', [pickingIds, PICKING_FIELDS]) : [],
+    readInBatches('sale.order.line', lineIds, LINE_FIELDS),
+    readInBatches('stock.picking', pickingIds, PICKING_FIELDS),
   ]);
 
   const productIds = [...new Set(lines.filter(l => Array.isArray(l.product_id)).map(l => l.product_id[0]))];

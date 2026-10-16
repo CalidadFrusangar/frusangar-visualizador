@@ -22,9 +22,17 @@ const objectClient = createClient('/xmlrpc/2/object');
 
 let uid = 0;
 
+// The xmlrpc library has no timeout: a stuck request would block the poller forever
+const CALL_TIMEOUT_MS = Number(process.env.ODOO_TIMEOUT_MS) || 45_000;
+
 function call(client, method, params) {
   return new Promise((resolve, reject) => {
-    client.methodCall(method, params, (err, value) => (err ? reject(err) : resolve(value)));
+    const timer = setTimeout(() => reject(new Error(`Odoo no respondió en ${CALL_TIMEOUT_MS / 1000}s (${method})`)), CALL_TIMEOUT_MS);
+    client.methodCall(method, params, (err, value) => {
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(value);
+    });
   });
 }
 
