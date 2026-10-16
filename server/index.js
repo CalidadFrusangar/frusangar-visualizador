@@ -33,13 +33,17 @@ app.use('/api', auth.requireAuth);
 // How long an order keeps its "modified" highlight
 const RECENT_MS = 3 * 60 * 60 * 1000;
 
+// Until the poller has data, every screen asks at once: share one Odoo fetch instead of one per request
+let firstFetch = null;
+
 app.get('/api/orders', async (req, res) => {
   let data = poller.getLatest();
   if (!data) {
     try {
-      data = await fetchOrdersByDay();
+      firstFetch ||= fetchOrdersByDay().finally(() => { firstFetch = null; });
+      data = await firstFetch;
     } catch (err) {
-      console.error('Fetch error:', err);
+      console.error('Fetch error:', err.message);
       return res.status(500).json({ error: 'No se pudo conectar con Odoo' });
     }
   }

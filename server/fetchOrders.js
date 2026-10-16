@@ -12,6 +12,9 @@ const LINE_FIELDS = ['product_id', 'product_uom_qty', 'product_uom', 'name', 'or
 const PICKING_FIELDS = ['name', 'state', 'picking_type_code', 'date_done', 'sale_id',
   'x_cajas_declaradas', 'x_cajas_declaracion', 'write_date'];
 
+// Orders without commitment date: how far back (by order date) to look for an expected date in the window
+const NO_COMMITMENT_LOOKBACK_DAYS = 60;
+
 // Read records in batches: from Render, big XML-RPC requests have stalled until Odoo timed out
 const READ_BATCH = 100;
 
@@ -62,17 +65,28 @@ async function fetchOrdersByDay(now = new Date()) {
   const from = toOdooUtc(days[0].startUtc);
   const to = toOdooUtc(days[days.length - 1].endUtc);
 
-  // Delivery date = commitment_date, or expected_date when commitment_date is empty
+  // Delivery date = commitment_date, or expected_date when commitment_date is empty.
+  // expected_date is computed (not stored) and Odoo ignores it in a domain: filtering on it brought back
+  // every order without commitment date (2,655 orders / 14,126 lines on 16/10/2026) and Render ran out of
+  // memory. Those orders are narrowed by date_order instead and checked against expected_date below.
+  const orderedFrom = toOdooUtc(new Date(days[0].startUtc.getTime() - NO_COMMITMENT_LOOKBACK_DAYS * 86400000));
   const domain = [
     ['type_id', 'in', ORDER_TYPES],
     ['state', 'in', ['sale', 'done', 'cancel']],
     '|',
     '&', ['commitment_date', '>=', from], ['commitment_date', '<', to],
-    '&', '&', ['commitment_date', '=', false], ['expected_date', '>=', from], ['expected_date', '<', to],
+    '&', '&', ['commitment_date', '=', false], ['date_order', '>=', orderedFrom], ['date_order', '<', to],
   ];
 
-  const orders = await executeKw('sale.order', 'search_read', [domain],
+  const found = await executeKw('sale.order', 'search_read', [domain],
     { fields: ORDER_FIELDS, order: 'commitment_date asc, id asc' });
+  const inWindow = (o) => {
+    const date = o.commitment_date || o.expected_date;
+    if (!date) return false;
+    const d = fromOdooUtc(date);
+    return d >= days[0].startUtc && d < days[days.length - 1].endUtc;
+  };
+  const orders = found.filter(inWindow);
 
   const lineIds = orders.flatMap(o => o.order_line);
   const pickingIds = orders.flatMap(o => o.picking_ids || []);
