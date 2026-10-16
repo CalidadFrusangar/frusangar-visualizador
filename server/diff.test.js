@@ -118,3 +118,50 @@ test('Madrid day ranges across DST change (25 Oct 2026)', () => {
   const [late] = madridDayRanges(new Date('2026-10-15T21:30:00Z')); // 23:30 Madrid on the 15th
   assert.strictEqual(late.date, '2026-10-15');
 });
+
+// Navalcarnero works Monday to Saturday: Sunday is skipped
+const FRIDAY = new Date('2026-10-16T08:00:00Z');   // Fri 16 Oct, 10:00 Madrid
+const SATURDAY = new Date('2026-10-17T08:00:00Z'); // Sat 17 Oct
+const SUNDAY = new Date('2026-10-18T08:00:00Z');   // Sun 18 Oct
+
+test('working-day columns on a Friday: Hoy / Mañana (sáb) / Lunes / Próximos días', () => {
+  const r = madridDayRanges(FRIDAY);
+  assert.deepStrictEqual(r.map(d => [d.key, d.date, d.title]), [
+    ['today', '2026-10-16', 'Hoy'],
+    ['tomorrow', '2026-10-17', 'Mañana'],
+    ['dayAfter', '2026-10-19', 'Lunes'],
+    ['upcoming', '2026-10-20', 'Próximos días'],
+  ]);
+  assert.strictEqual(r[3].dateTo, '2026-10-26');
+});
+
+test('on a Saturday the next columns are Monday and Tuesday', () => {
+  const r = madridDayRanges(SATURDAY);
+  assert.deepStrictEqual(r.slice(0, 3).map(d => [d.date, d.title]),
+    [['2026-10-17', 'Hoy'], ['2026-10-19', 'Lunes'], ['2026-10-20', 'Martes']]);
+});
+
+test('Sunday orders fall in the Saturday column, Monday 00:00 Madrid in Monday', () => {
+  assert.strictEqual(dayKeyOf('2026-10-18T09:00:00.000Z', FRIDAY), 'tomorrow'); // Sunday 11:00
+  assert.strictEqual(dayKeyOf('2026-10-18T22:00:00.000Z', FRIDAY), 'dayAfter'); // Monday 00:00 Madrid
+  assert.strictEqual(dayKeyOf('2026-10-22T07:00:00.000Z', FRIDAY), 'upcoming'); // Thursday 22
+  assert.strictEqual(dayKeyOf('2026-10-27T07:00:00.000Z', FRIDAY), 'later');
+  assert.strictEqual(dayKeyOf('8122-11-20T17:00:00.000Z', FRIDAY), 'later');    // typo in Odoo
+});
+
+test('a Sunday shows Sunday as Hoy, then Monday and Tuesday', () => {
+  const r = madridDayRanges(SUNDAY);
+  assert.deepStrictEqual(r.slice(0, 3).map(d => [d.date, d.title]),
+    [['2026-10-18', 'Hoy'], ['2026-10-19', 'Mañana'], ['2026-10-20', 'Pasado mañana']]);
+});
+
+test('alerts: a reduction on Monday seen on Friday is «normal» (Saturday is worked), labelled Lunes', () => {
+  const prev = snap({ deliveryDate: '2026-10-18T22:00:00.000Z' });
+  const ev = buildEvent(prev, snap({ deliveryDate: prev.deliveryDate, lines: [line(10, 100, 40, 4)] }), FRIDAY);
+  assert.strictEqual(ev.dayKey, 'dayAfter');
+  assert.strictEqual(ev.dayLabel, 'Lunes');
+  assert.strictEqual(ev.priority, 'normal');
+  const upcoming = buildEvent(null, snap({ deliveryDate: '2026-10-22T07:00:00.000Z' }), FRIDAY);
+  assert.strictEqual(upcoming.dayLabel, 'Jueves 22');
+  assert.strictEqual(upcoming.priority, 'normal');
+});

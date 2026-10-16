@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { withShortages, missingBultos } from '../stock';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
 const fmt = (n, digits = 0) => Number(n || 0).toLocaleString('es-ES', { maximumFractionDigits: digits });
@@ -18,7 +19,7 @@ function summarizeProducts(orders) {
                 const name = l.product_id[1];
                 const ref = name.match(/\[([^\]]+)\]/)?.[1] || '';
                 rows.set(key, {
-                    key, ref, packaging,
+                    key, ref, packaging, productId: l.product_id[0], pendingQty: 0,
                     name: name.split('] ')[1] || name,
                     uom: Array.isArray(l.product_uom) ? l.product_uom[1] : '',
                     bultos: 0, pendingBultos: 0, qty: 0, kg: 0, pendingKg: 0, kgMissing: false, palets: 0, orders: new Map(),
@@ -31,6 +32,7 @@ function summarizeProducts(orders) {
             if (l.kg == null) r.kgMissing = true;
             else r.kg += l.kg;
             if (pending) {
+                r.pendingQty += l.product_uom_qty || 0;
                 r.pendingBultos += l.product_packaging_qty || 0;
                 r.pendingKg += l.kg || 0;
             }
@@ -117,12 +119,39 @@ function cardPosition(rect, rows) {
     return { left, top, maxHeight: window.innerHeight - 24 };
 }
 
-const ProductSummary = ({ orders }) => {
+// «Fabricar» cell: what almacén 4 still has to receive for this row, after earlier days and rows
+function MissingCell({ r }) {
+    if (r.missing == null) return <span className="text-stone-300" title="No se fabrica en planta (sin lista de materiales en Odoo)">—</span>;
+    if (!r.pendingQty) return <span className="text-emerald-600 font-bold" title="Todo el producto de este día ya está en albaranes hechos">✔</span>;
+    const stockText = `Alm. 4: ${fmt(r.available, 2)} ${r.uom}`;
+    if (r.missing <= 1e-6) {
+        return (
+            <span title={`Hay stock suficiente en el almacén 4 para lo pendiente (${stockText})`}>
+                <span className="font-bold text-emerald-600">✔ Hay</span>
+                <span className="block text-[10px] text-stone-400">{stockText}</span>
+            </span>
+        );
+    }
+    const b = missingBultos(r);
+    return (
+        <span title={`Pendiente ${fmt(r.pendingQty, 2)} ${r.uom} · ${stockText} disponible para este día`}>
+            <span className="font-black text-red-600">{b != null ? `${fmt(Math.ceil(b - 1e-6))} b.` : `${fmt(r.missing, 2)} ${r.uom}`}</span>
+            {b != null && <span className="block text-[10px] font-bold text-red-500">{fmt(r.missing, 2)} {r.uom}</span>}
+            <span className="block text-[10px] text-stone-400">{stockText}</span>
+        </span>
+    );
+}
+
+// compact (4 columns on screen): «Por preparar» goes under Bultos and «Cantidad» under Kg
+const ProductSummary = ({ orders, available = null, compact = false }) => {
     const [hover, setHover] = useState(null);   // { key, pos }
     const [openKey, setOpenKey] = useState(null);
     const canHover = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches;
 
-    const rows = summarizeProducts(orders);
+    const rows = withShortages(summarizeProducts(orders), available);
+    const showStock = !!available;
+    const colCount = 4 + (compact ? 0 : 2) + (showStock ? 1 : 0);
+    const totalMissingBultos = rows.reduce((sum, r) => sum + (r.missing > 1e-6 ? Math.ceil((missingBultos(r) ?? 0) - 1e-6) : 0), 0);
     const total = rows.reduce((t, r) => ({
         bultos: t.bultos + r.bultos,
         pendingBultos: t.pendingBultos + r.pendingBultos,
@@ -147,10 +176,13 @@ const ProductSummary = ({ orders }) => {
                     <thead>
                         <tr className="border-b border-stone-200/60 text-stone-400 font-semibold uppercase tracking-wider text-[10px]">
                             <th className="py-3 px-4">Producto / Empaquetado</th>
-                            <th className="py-3 px-2 text-right">Bultos</th>
-                            <th className="py-3 px-2 text-right" title="Bultos de pedidos con el albarán aún sin validar">Por preparar</th>
-                            <th className="py-3 px-2 text-right">Cantidad</th>
+                            <th className="py-3 px-2 text-right" title={compact ? 'Debajo, bultos con el albarán aún sin validar' : undefined}>Bultos</th>
+                            {!compact && <th className="py-3 px-2 text-right" title="Bultos de pedidos con el albarán aún sin validar">Por preparar</th>}
+                            {!compact && <th className="py-3 px-2 text-right">Cantidad</th>}
                             <th className="py-3 px-2 text-right" title="Cantidad × peso del producto en Odoo. Entre paréntesis, kg por preparar">Kg</th>
+                            {showStock && (
+                                <th className="py-3 px-2 text-right" title="Lo que falta por fabricar: pendiente de preparar menos el stock del almacén 4 (Productos terminados) que queda tras los días anteriores">Fabricar</th>
+                            )}
                             <th className="py-3 px-4 text-right" title="Pasa el ratón o pulsa el producto para ver el reparto por pedido">Pedidos</th>
                         </tr>
                     </thead>
@@ -173,17 +205,30 @@ const ProductSummary = ({ orders }) => {
                                                 {r.packaging}
                                             </div>
                                         </td>
-                                        <td className="py-2.5 px-2 text-right font-black text-frusangar-dark text-sm">{r.bultos ? fmt(r.bultos, 1) : '-'}</td>
-                                        <td className={`py-2.5 px-2 text-right font-bold ${r.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>
-                                            {r.bultos ? (r.pendingBultos ? fmt(r.pendingBultos, 1) : '✔') : '-'}
+                                        <td className="py-2.5 px-2 text-right font-black text-frusangar-dark text-sm align-top">
+                                            {r.bultos ? fmt(r.bultos, 1) : '-'}
+                                            {compact && r.bultos > 0 && (
+                                                <div className={`text-[10px] font-bold ${r.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>
+                                                    {r.pendingBultos ? `${fmt(r.pendingBultos, 1)} por prep.` : '✔'}
+                                                </div>
+                                            )}
                                         </td>
-                                        <td className="py-2.5 px-2 text-right text-stone-600 whitespace-nowrap">{fmt(r.qty, 2)} {r.uom}</td>
+                                        {!compact && (
+                                            <td className={`py-2.5 px-2 text-right font-bold ${r.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>
+                                                {r.bultos ? (r.pendingBultos ? fmt(r.pendingBultos, 1) : '✔') : '-'}
+                                            </td>
+                                        )}
+                                        {!compact && <td className="py-2.5 px-2 text-right text-stone-600 whitespace-nowrap">{fmt(r.qty, 2)} {r.uom}</td>}
                                         <td className="py-2.5 px-2 text-right whitespace-nowrap" title={r.kgMissing ? 'Algún producto no tiene el peso puesto en Odoo' : undefined}>
                                             <div className="font-bold text-stone-800">{kgCell(r.kg, r.kgMissing)}</div>
-                                            {r.pendingKg > 0 && r.pendingKg !== r.kg && (
+                                            {compact && <div className="text-[10px] text-stone-400">{fmt(r.qty, 2)} {r.uom}</div>}
+                                            {!compact && r.pendingKg > 0 && r.pendingKg !== r.kg && (
                                                 <div className="text-[10px] font-bold text-frusangar-orange">({fmt(r.pendingKg)} por prep.)</div>
                                             )}
                                         </td>
+                                        {showStock && (
+                                            <td className="py-2.5 px-2 text-right whitespace-nowrap align-top"><MissingCell r={r} /></td>
+                                        )}
                                         <td className="py-2.5 px-4 text-right whitespace-nowrap">
                                             <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-bold ${r.split.length > 1 ? 'bg-sky-50 text-sky-700' : 'text-stone-500'}`}>
                                                 {r.split.length}
@@ -193,7 +238,7 @@ const ProductSummary = ({ orders }) => {
                                     </tr>
                                     {open && (
                                         <tr className="bg-frusangar-light/30">
-                                            <td colSpan="6" className="px-4 pb-3 pt-1">
+                                            <td colSpan={colCount} className="px-4 pb-3 pt-1">
                                                 <SplitList row={r} compact />
                                             </td>
                                         </tr>
@@ -205,15 +250,28 @@ const ProductSummary = ({ orders }) => {
                     <tfoot>
                         <tr className="border-t-2 border-stone-200 bg-stone-50 font-black text-stone-800">
                             <td className="py-2.5 px-4 uppercase text-[11px] tracking-wide">Total</td>
-                            <td className="py-2.5 px-2 text-right text-sm text-frusangar-dark">{fmt(total.bultos, 1)}</td>
-                            <td className={`py-2.5 px-2 text-right ${total.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>{total.pendingBultos ? fmt(total.pendingBultos, 1) : '✔'}</td>
-                            <td className="py-2.5 px-2"></td>
+                            <td className="py-2.5 px-2 text-right text-sm text-frusangar-dark">
+                                {fmt(total.bultos, 1)}
+                                {compact && (
+                                    <div className={`text-[10px] ${total.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>
+                                        {total.pendingBultos ? `${fmt(total.pendingBultos, 1)} por prep.` : '✔'}
+                                    </div>
+                                )}
+                            </td>
+                            {!compact && <td className={`py-2.5 px-2 text-right ${total.pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>{total.pendingBultos ? fmt(total.pendingBultos, 1) : '✔'}</td>}
+                            {!compact && <td className="py-2.5 px-2"></td>}
                             <td className="py-2.5 px-2 text-right whitespace-nowrap">
                                 <div className="text-sm">{kgCell(total.kg, total.kgMissing)}</div>
                                 {total.pendingKg > 0 && total.pendingKg !== total.kg && (
                                     <div className="text-[10px] text-frusangar-orange">({fmt(total.pendingKg)} por prep.)</div>
                                 )}
                             </td>
+                            {showStock && (
+                                <td className={`py-2.5 px-2 text-right whitespace-nowrap ${totalMissingBultos ? 'text-red-600' : 'text-emerald-600'}`}
+                                    title="Bultos que faltan por fabricar (productos con empaquetado)">
+                                    {totalMissingBultos ? `${fmt(totalMissingBultos)} b.` : '✔'}
+                                </td>
+                            )}
                             <td className="py-2.5 px-4"></td>
                         </tr>
                     </tfoot>
@@ -236,6 +294,14 @@ const ProductSummary = ({ orders }) => {
                         </div>
                     </div>
                     <SplitList row={hoverRow} />
+                    {showStock && hoverRow.pendingQty > 0 && (
+                        <div className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${hoverRow.missing > 1e-6 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                            Almacén 4: {fmt(hoverRow.available, 2)} {hoverRow.uom} disponibles para este día ·{' '}
+                            {hoverRow.missing > 1e-6
+                                ? `faltan ${fmt(hoverRow.missing, 2)} ${hoverRow.uom}${missingBultos(hoverRow) != null ? ` (${fmt(Math.ceil(missingBultos(hoverRow) - 1e-6))} bultos)` : ''}`
+                                : 'cubierto'}
+                        </div>
+                    )}
                     <div className="mt-2 text-[10px] text-stone-400">⏳ albarán pendiente · ✔ albarán hecho · Pulsa la fila para dejarlo abierto</div>
                 </div>
             )}

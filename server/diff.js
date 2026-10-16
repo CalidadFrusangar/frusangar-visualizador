@@ -1,8 +1,19 @@
 // Pure functions: order snapshots, change detection and priority rules.
-const { madridDateStr, addDays } = require('./dates');
+const { madridDateStr, madridDayRanges, weekdayName } = require('./dates');
 
 const PRIORITY_RANK = { info: 0, normal: 1, alto: 2, critico: 3 };
-const DAY_LABEL = { past: 'Pasado', today: 'Hoy', tomorrow: 'Mañana', dayAfter: 'Pasado mañana', later: 'Más adelante' };
+const DAY_LABEL = { past: 'Pasado', today: 'Hoy', tomorrow: 'Mañana', dayAfter: 'Pasado mañana', upcoming: 'Próximos días', later: 'Más adelante' };
+
+// Label for an alert: the column title («Hoy», «Mañana», «Lunes»…) or «Jueves 22» for «Próximos días»
+function dayLabelOf(deliveryIso, now = new Date()) {
+  const key = dayKeyOf(deliveryIso, now);
+  if (!deliveryIso || key === 'past' || key === 'later') return DAY_LABEL[key];
+  if (key === 'upcoming') {
+    const ymd = madridDateStr(new Date(deliveryIso));
+    return `${weekdayName(ymd)} ${Number(ymd.slice(8))}`;
+  }
+  return madridDayRanges(now).find(r => r.key === key).title;
+}
 
 function cleanProductName(name) {
   return (name || '').replace(/^\[[^\]]*\]\s*/, '');
@@ -40,16 +51,14 @@ function toSnapshot(order) {
   };
 }
 
-// 'today' | 'tomorrow' | 'dayAfter' | 'past' | 'later' for a delivery date, seen from `now`
+// Column of a delivery date, seen from `now`: 'today' | 'tomorrow' | 'dayAfter' (next working days,
+// Sunday skipped) | 'upcoming' (Próximos días) | 'past' | 'later'
 function dayKeyOf(deliveryIso, now = new Date()) {
   if (!deliveryIso) return 'later';
-  const d = madridDateStr(new Date(deliveryIso));
-  const today = madridDateStr(now);
-  if (d < today) return 'past';
-  if (d === today) return 'today';
-  if (d === addDays(today, 1)) return 'tomorrow';
-  if (d === addDays(today, 2)) return 'dayAfter';
-  return 'later';
+  const t = new Date(deliveryIso);
+  const ranges = madridDayRanges(now);
+  if (t < ranges[0].startUtc) return 'past';
+  return ranges.find(r => t >= r.startUtc && t < r.endUtc)?.key || 'later';
 }
 
 const sameNumber = (a, b) => Math.abs((a || 0) - (b || 0)) < 1e-6;
@@ -207,7 +216,7 @@ function buildEvent(baseline, latest, now = new Date()) {
     partner: latest.partner,
     typeId: latest.typeId,
     dayKey,
-    dayLabel: DAY_LABEL[dayKey],
+    dayLabel: dayLabelOf(latest.deliveryDate, now),
     deliveryDate: latest.deliveryDate,
     wasValidated: ctx.wasValidated,
     priority,
@@ -217,6 +226,6 @@ function buildEvent(baseline, latest, now = new Date()) {
 }
 
 module.exports = {
-  toSnapshot, diffOrder, diffLines, changePriority, buildEvent, dayKeyOf, describeChange,
+  toSnapshot, diffOrder, diffLines, changePriority, buildEvent, dayKeyOf, dayLabelOf, describeChange,
   PRIORITY_RANK, DAY_LABEL,
 };

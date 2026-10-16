@@ -93,7 +93,7 @@ async function fetchOrdersByDay(now = new Date()) {
     linesByOrder.get(id).push(l);
   }
   const pickingById = new Map(pickings.map(p => [p.id, p]));
-  const boxesById = await boxesByPicking(pickings);
+  const [boxesById, stock] = await Promise.all([boxesByPicking(pickings), finishedStock(productIds)]);
 
   const result = Object.fromEntries(days.map(d => [d.key, []]));
 
@@ -119,11 +119,55 @@ async function fetchOrdersByDay(now = new Date()) {
   for (const list of Object.values(result)) list.sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate) || a.id - b.id);
 
   return {
-    days: days.map(d => ({ key: d.key, date: d.date })),
+    days: days.map(d => ({ key: d.key, date: d.date, title: d.title, ...(d.dateTo && { dateTo: d.dateTo }) })),
     windowStart: days[0].startUtc.toISOString(),
     windowEnd: days[days.length - 1].endUtc.toISOString(),
     orders: result,
+    stock,
   };
+}
+
+// Finished goods already made: stock in «FRU/Ubicacion 4 (Productos terminados)» (and its sublocations),
+// per product, in the product's unit (the same unit as the order lines). null if it cannot be read.
+const FINISHED_LOCATION_ID = Number(process.env.FINISHED_LOCATION_ID) || 65;
+
+async function finishedStock(productIds) {
+  if (!productIds.length) return { locationId: FINISHED_LOCATION_ID, byProduct: {}, manufactured: [] };
+  try {
+    const [quants, manufactured] = await Promise.all([
+      executeKw('stock.quant', 'search_read',
+        [[['location_id', 'child_of', FINISHED_LOCATION_ID], ['product_id', 'in', productIds]]],
+        { fields: ['product_id', 'quantity', 'reserved_quantity'] }),
+      manufacturedProducts(productIds),
+    ]);
+    const byProduct = {};
+    for (const q of quants) {
+      const s = (byProduct[q.product_id[0]] ||= { qty: 0, reserved: 0 });
+      s.qty += Number(q.quantity) || 0;
+      s.reserved += Number(q.reserved_quantity) || 0;
+    }
+    return { locationId: FINISHED_LOCATION_ID, byProduct, manufactured };
+  } catch (err) {
+    console.error('Stock almacén 4 no disponible:', err.message.split('\n')[0]);
+    return null;
+  }
+}
+
+// Products made in the plant = those with a bill of materials (all «PATATAS TERMINADAS»).
+// Others on the orders (e.g. ABONO, a financial service) never count as «to manufacture». Cached 10 min.
+const bomCache = new Map(); // productId -> { hasBom, at }
+
+async function manufacturedProducts(productIds, now = Date.now()) {
+  const missing = productIds.filter(id => !(bomCache.get(id)?.at > now - WEIGHT_TTL_MS));
+  if (missing.length) {
+    const products = await executeKw('product.product', 'read', [missing, ['product_tmpl_id']], { context: { active_test: false } });
+    const templates = [...new Set(products.map(p => p.product_tmpl_id[0]))];
+    const boms = await executeKw('mrp.bom', 'search_read',
+      [['|', ['product_id', 'in', missing], ['product_tmpl_id', 'in', templates]]], { fields: ['product_id', 'product_tmpl_id'] });
+    const withBom = new Set(boms.map(b => b.product_tmpl_id[0]));
+    for (const p of products) bomCache.set(p.id, { hasBom: withBom.has(p.product_tmpl_id[0]), at: now });
+  }
+  return productIds.filter(id => bomCache.get(id)?.hasBom);
 }
 
 // Current delivery date / state of orders that left the window (date moved, cancelled, deleted...)

@@ -90,7 +90,8 @@ async function detectChanges(result, now) {
 
   const events = flushPending(now);
   pruneAlerted(state.boxAlerts, now);
-  events.push(...boxAlertEvents(result.orders, state.boxAlerts, now, BOX_ALERT_MS, DAY_LABEL));
+  const dayTitles = { ...DAY_LABEL, ...Object.fromEntries(result.days.map(d => [d.key, d.title])) };
+  events.push(...boxAlertEvents(result.orders, state.boxAlerts, now, BOX_ALERT_MS, dayTitles));
   if (events.length) {
     store.addEvents(events);
     for (const e of events) console.log(`[${e.priority.toUpperCase()}] ${e.orderName} (${e.dayLabel}): ${e.summary}`);

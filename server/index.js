@@ -65,6 +65,7 @@ app.get('/api/orders', async (req, res) => {
   res.json({
     days: data.days,
     orders,
+    stock: data.stock || null,
     fetchedAt: data.fetchedAt || new Date().toISOString(),
     error: poller.getLastError(),
     serverTime: new Date().toISOString(),

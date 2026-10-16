@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Calendar, CheckCircle2 } from 'lucide-react';
 import OrderCard from './OrderCard';
 import ProductSummary from './ProductSummary';
+import { pendingQtyByProduct } from '../stock';
 
 const STATUS_ORDER = { pendiente: 0, parcial: 1, validado: 2 };
 
@@ -28,8 +29,38 @@ const fmt = (n, digits = 0) => Number(n || 0).toLocaleString('es-ES', { maximumF
 const VIEWS = [{ key: 'orders', label: 'Pedidos' }, { key: 'products', label: 'Productos' }];
 
 const formatDate = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+const formatDay = (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' });
+const formatRange = (from, to) => {
+    const d = (ymd, opts) => new Date(`${ymd}T12:00:00`).toLocaleDateString('es-ES', opts);
+    return `${d(from, { day: 'numeric' })}–${d(to, { day: 'numeric', month: 'short' })}`;
+};
+const madridYmd = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' });
 
-const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSeq = 0, wide = false, className = '' }) => {
+// Manufactured products still short in almacén 4 for this column
+function shortage(orders, available) {
+    if (!available) return null;
+    let products = 0;
+    for (const [productId, qty] of pendingQtyByProduct(orders)) {
+        if (available.has(productId) && qty - available.get(productId) > 1e-6) products++;
+    }
+    return products;
+}
+
+const OrderList = ({ list, wide, focusOrderId, focusSeq }) => (
+    <div className={wide ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-6 items-start' : ''}>
+        {list.map(order => (
+            <OrderCard
+                key={order.id}
+                order={order}
+                dimmed={order.pickingStatus === 'validado'}
+                focused={order.id === focusOrderId}
+                focusSeq={focusSeq}
+            />
+        ))}
+    </div>
+);
+
+const DayColumn = ({ title, date, dateTo, orders, accent, loading, focusOrderId, focusSeq = 0, wide = false, available = null, byDate = false, className = '' }) => {
     const active = orders.filter(o => o.state !== 'cancel');
     const done = active.filter(o => o.pickingStatus === 'validado').length;
     const progress = active.length ? Math.round((done / active.length) * 100) : 0;
@@ -38,6 +69,7 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSe
     const totalBultos = sumLines(active, 'product_packaging_qty');
     const pendingBultos = sumLines(active.filter(o => o.pickingStatus !== 'validado'), 'product_packaging_qty');
     const totalPalets = sumLines(active, 'palet_qty');
+    const shortProducts = shortage(active, available);
     const [view, setView] = useState('orders');
 
     // Opening an order from an alert shows the order list, not the product summary
@@ -55,7 +87,7 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSe
                     <Calendar className={`mr-2 shrink-0 ${accent.icon}`} size={24} />
                     <h2 className="text-2xl font-bold text-frusangar-dark">{title}</h2>
                     <span className={`ml-auto text-sm font-bold text-frusangar-dark bg-white border px-3 py-1 rounded-full shadow-sm capitalize ${accent.chip}`}>
-                        {date ? formatDate(date) : 'Cargando...'}
+                        {date ? (dateTo ? formatRange(date, dateTo) : formatDate(date)) : 'Cargando...'}
                     </span>
                 </div>
                 {active.length > 0 && (
@@ -80,6 +112,15 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSe
                         <span>Bultos <b className="text-frusangar-dark text-sm">{fmt(totalBultos)}</b></span>
                         <span>Por preparar <b className={`text-sm ${pendingBultos ? 'text-frusangar-orange' : 'text-emerald-600'}`}>{fmt(pendingBultos)}</b></span>
                         {totalPalets > 0 && <span>Palés <b className="text-stone-700 text-sm">{fmt(totalPalets, 1)}</b></span>}
+                        {shortProducts != null && pendingBultos > 0 && (
+                            <button
+                                onClick={() => setView('products')}
+                                title="Productos pendientes que no tienen stock suficiente en el almacén 4 (Productos terminados). Pulsa para ver el detalle."
+                                className={`px-2 py-0.5 rounded-full font-bold ${shortProducts ? 'bg-red-600 text-white' : 'bg-emerald-100 text-emerald-800'}`}
+                            >
+                                🏭 {shortProducts ? `Fabricar: ${shortProducts} prod.` : 'Todo fabricado'}
+                            </button>
+                        )}
                         <div className="ml-auto flex bg-stone-100 rounded-full p-0.5 text-[11px] font-bold">
                             {VIEWS.map(v => (
                                 <button
@@ -101,11 +142,25 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSe
                         {[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-xl shadow-sm border border-stone-100"></div>)}
                     </div>
                 ) : view === 'products' && orders.length > 0 ? (
-                    <ProductSummary orders={orders} />
+                    <ProductSummary orders={orders} available={available} compact={!wide} />
                 ) : orders.length === 0 ? (
                     <div className="bg-white/50 p-10 rounded-xl text-center border-dashed border-2 border-stone-200">
                         <p className="text-stone-500 font-medium">No hay pedidos para este día.</p>
                     </div>
+                ) : byDate ? (
+                    // «Próximos días»: one group per delivery date
+                    [...new Set(sortOrders(orders).map(o => madridYmd(o.deliveryDate)))].sort().map(ymd => {
+                        const list = sortOrders(orders.filter(o => madridYmd(o.deliveryDate) === ymd));
+                        return (
+                            <div key={ymd} className="mb-6">
+                                <h4 className="text-md font-bold mb-3 text-stone-700 capitalize">
+                                    {formatDay(ymd)}
+                                    <span className="ml-2 text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">{list.length}</span>
+                                </h4>
+                                <OrderList list={list} wide={wide} focusOrderId={focusOrderId} focusSeq={focusSeq} />
+                            </div>
+                        );
+                    })
                 ) : (
                     SECTIONS.map(section => {
                         const list = sortOrders(orders.filter(o => o.type_id?.[0] === section.typeId));
@@ -116,17 +171,7 @@ const DayColumn = ({ title, date, orders, accent, loading, focusOrderId, focusSe
                                     {section.title}
                                     <span className="ml-2 text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">{list.length}</span>
                                 </h4>
-                                <div className={wide ? 'grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-6 items-start' : ''}>
-                                    {list.map(order => (
-                                        <OrderCard
-                                            key={order.id}
-                                            order={order}
-                                            dimmed={order.pickingStatus === 'validado'}
-                                            focused={order.id === focusOrderId}
-                                            focusSeq={focusSeq}
-                                        />
-                                    ))}
-                                </div>
+                                <OrderList list={list} wide={wide} focusOrderId={focusOrderId} focusSeq={focusSeq} />
                             </div>
                         );
                     })

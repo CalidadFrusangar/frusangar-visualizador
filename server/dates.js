@@ -48,19 +48,48 @@ function fromOdooUtc(str) {
   return str ? new Date(str.replace(' ', 'T') + 'Z') : null;
 }
 
-// Today / tomorrow / dayAfter in Madrid with UTC ranges [start, end)
-function madridDayRanges(now = new Date()) {
-  const today = madridDateStr(now);
-  const keys = ['today', 'tomorrow', 'dayAfter'];
-  return keys.map((key, i) => {
-    const ymd = addDays(today, i);
-    return {
-      key,
-      date: ymd,
-      startUtc: madridMidnightUtc(ymd),
-      endUtc: madridMidnightUtc(addDays(ymd, 1)),
-    };
-  });
+// Navalcarnero works Monday to Saturday. Extra closed days: HOLIDAYS=2026-12-25,2027-01-01
+const HOLIDAYS = new Set((process.env.HOLIDAYS || '').split(',').map(s => s.trim()).filter(Boolean));
+// The «Próximos días» column covers this many calendar days after the third working day
+const UPCOMING_DAYS = Number(process.env.UPCOMING_DAYS) || 7;
+
+const weekday = (ymd) => new Date(`${ymd}T12:00:00Z`).getUTCDay(); // 0 = Sunday
+const isWorkingDay = (ymd) => weekday(ymd) !== 0 && !HOLIDAYS.has(ymd);
+
+function nextWorkingDay(ymd) {
+  let d = addDays(ymd, 1);
+  while (!isWorkingDay(d)) d = addDays(d, 1);
+  return d;
 }
 
-module.exports = { madridDateStr, madridMidnightUtc, madridDayRanges, toOdooUtc, fromOdooUtc, addDays };
+const WEEKDAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const weekdayName = (ymd) => WEEKDAYS[weekday(ymd)];
+
+// Hoy + next two working days, plus «Próximos días», in Madrid with UTC ranges [start, end).
+// Each column runs until the next one starts, so closed days (Sunday) fall in the working day
+// before them and nothing is ever left out.
+function madridDayRanges(now = new Date()) {
+  const today = madridDateStr(now);
+  const d1 = nextWorkingDay(today);
+  const d2 = nextWorkingDay(d1);
+  const d3 = nextWorkingDay(d2);
+  const upcomingEnd = addDays(d3, UPCOMING_DAYS);
+  const range = (key, date, until, title) => ({
+    key, date, title,
+    startUtc: madridMidnightUtc(date),
+    endUtc: madridMidnightUtc(until),
+  });
+  // «Mañana» / «Pasado mañana» only when they really are; otherwise the weekday (Saturday: Hoy / Lunes / Martes)
+  return [
+    range('today', today, d1, 'Hoy'),
+    range('tomorrow', d1, d2, d1 === addDays(today, 1) ? 'Mañana' : weekdayName(d1)),
+    range('dayAfter', d2, d3, d1 === addDays(today, 1) && d2 === addDays(today, 2) ? 'Pasado mañana' : weekdayName(d2)),
+    { ...range('upcoming', d3, upcomingEnd, 'Próximos días'), dateTo: addDays(upcomingEnd, -1) },
+  ];
+}
+
+module.exports = {
+  madridDateStr, madridMidnightUtc, madridDayRanges, toOdooUtc, fromOdooUtc, addDays,
+  isWorkingDay, nextWorkingDay, weekdayName,
+};

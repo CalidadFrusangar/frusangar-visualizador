@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical } from 'lucide-react';
 import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent, archiveEvents } from './api';
+import { stockByDay } from './stock';
 import { unlockAudio, beep } from './push';
 import { speak, stopSpeaking, describeForSpeech, speechSupported } from './speech';
 import DayColumn from './components/DayColumn';
@@ -27,9 +28,12 @@ const DAYS = [
   { key: 'today', title: 'Hoy', accent: { border: 'border-red-400/40', icon: 'text-red-500', chip: 'border-red-200' } },
   { key: 'tomorrow', title: 'Mañana', accent: { border: 'border-frusangar-green/30', icon: 'text-frusangar-green', chip: 'border-frusangar-green/20' } },
   { key: 'dayAfter', title: 'Pasado Mañana', accent: { border: 'border-frusangar-orange/30', icon: 'text-frusangar-orange', chip: 'border-frusangar-orange/20' } },
+  // Orders booked well ahead (e.g. Sodexo), grouped by date
+  { key: 'upcoming', title: 'Próximos días', byDate: true, accent: { border: 'border-sky-300/50', icon: 'text-sky-500', chip: 'border-sky-200' } },
 ];
 
-const TABS = [...DAYS.map(d => ({ key: d.key, label: d.title === 'Pasado Mañana' ? 'Pasado' : d.title })), { key: 'events', label: 'Avisos' }];
+// Short names for the mobile tabs
+const shortTitle = (title) => ({ 'Pasado mañana': 'Pasado', 'Próximos días': 'Próximos' }[title] || title);
 
 const readFlag = (key) => {
   try { return localStorage.getItem(key) === 'on'; } catch { return false; }
@@ -38,7 +42,7 @@ const saveFlag = (key, on) => {
   try { localStorage.setItem(key, on ? 'on' : 'off'); } catch { /* ignore */ }
 };
 
-const DAY_FILTERS = [{ key: 'all', label: 'Todos' }, ...DAYS.map(d => ({ key: d.key, label: `Solo ${d.title.toLowerCase()}` }))];
+const DAY_FILTERS = [{ key: 'all' }, ...DAYS.map(d => ({ key: d.key }))];
 
 const readDayFilter = () => {
   try { return DAY_FILTERS.some(f => f.key === localStorage.getItem('dayFilter')) ? localStorage.getItem('dayFilter') : 'all'; } catch { return 'all'; }
@@ -265,7 +269,14 @@ function Dashboard() {
   }, []);
 
   const ordersOf = (key) => data?.orders?.[key] || [];
-  const dateOf = (key) => data?.days?.find(d => d.key === key)?.date;
+  const dayOf = (key) => data?.days?.find(d => d.key === key);
+  const dateOf = (key) => dayOf(key)?.date;
+  // Server titles follow working days (Sunday skipped): «Mañana», «Lunes»…
+  const titleOf = (key) => dayOf(key)?.title || DAYS.find(d => d.key === key).title;
+  const tabs = [...DAYS.map(d => ({ key: d.key, label: shortTitle(titleOf(d.key)) })), { key: 'events', label: 'Avisos' }];
+  const dayFilters = DAY_FILTERS.map(f => ({ key: f.key, label: f.key === 'all' ? 'Todos' : `Solo ${titleOf(f.key).toLowerCase()}` }));
+  // Almacén 4 stock covers today first, then the next columns
+  const availableByDay = stockByDay(DAYS.map(d => d.key), ordersOf, data?.stock);
   const undeclaredBoxes = DAYS.flatMap(d => ordersOf(d.key))
     .filter(o => o.state !== 'cancel' && o.boxes?.status === 'sin_declarar').length;
   const pendingToday = ordersOf('today').filter(o => o.state !== 'cancel' && o.pickingStatus !== 'validado').length;
@@ -339,7 +350,7 @@ function Dashboard() {
 
         {/* Mobile tabs */}
         <nav className="lg:hidden flex border-t border-stone-100 bg-white">
-          {TABS.map(t => {
+          {tabs.map(t => {
             const count = t.key === 'events' ? importantEvents : ordersOf(t.key).filter(o => o.state !== 'cancel').length;
             return (
               <button
@@ -359,7 +370,7 @@ function Dashboard() {
 
       {/* Day filter (desktop / TV) */}
       <div className="hidden lg:flex items-center gap-2 px-8 pt-5">
-        {DAY_FILTERS.map(f => (
+        {dayFilters.map(f => (
           <button
             key={f.key}
             onClick={() => chooseDayFilter(f.key)}
@@ -378,19 +389,22 @@ function Dashboard() {
       )}
 
       {/* Main: 3 day columns + changes panel */}
-      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:pt-5 lg:pb-8 grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_300px] gap-8 items-start">
+      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:pt-5 lg:pb-8 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[1fr_1fr_1fr_0.85fr_300px] gap-8 2xl:gap-6 items-start">
         {DAYS.map(d => (
           <DayColumn
             key={d.key}
-            title={d.title}
+            title={titleOf(d.key)}
             date={dateOf(d.key)}
+            dateTo={dayOf(d.key)?.dateTo}
             orders={ordersOf(d.key)}
+            available={availableByDay?.[d.key]}
+            byDate={!!d.byDate}
             accent={d.accent}
             loading={loading && !data}
             focusOrderId={focusOrderId}
             focusSeq={focusSeq}
             wide={dayFilter === d.key}
-            className={`${tab === d.key ? 'flex' : 'hidden'} ${dayFilter === 'all' ? 'lg:flex' : dayFilter === d.key ? 'lg:flex lg:col-span-3' : 'lg:hidden'}`}
+            className={`${tab === d.key ? 'flex' : 'hidden'} ${dayFilter === 'all' ? 'lg:flex' : dayFilter === d.key ? 'lg:flex lg:col-span-2 xl:col-span-4' : 'lg:hidden'}`}
           />
         ))}
         <ChangesPanel
@@ -398,7 +412,7 @@ function Dashboard() {
           onSelectOrder={selectOrder}
           onAck={requestAck}
           onArchive={archive}
-          className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-3 xl:col-span-1 xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]`}
+          className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-2 xl:col-span-4 2xl:col-span-1 2xl:sticky 2xl:top-28 2xl:max-h-[calc(100vh-8rem)]`}
         />
       </main>
 
@@ -407,7 +421,7 @@ function Dashboard() {
       {missingOrder && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-md bg-stone-800 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3 text-sm">
           <span className="flex-1">
-            <b>{missingOrder.orderName || 'Este pedido'}</b> ya no está en Hoy, Mañana ni Pasado.
+            <b>{missingOrder.orderName || 'Este pedido'}</b> ya no está en ninguna columna (hoy ni próximos días).
           </span>
           <OdooLink orderId={missingOrder.orderId} label="Abrir en Odoo" className="!text-xs" />
           <button onClick={() => setMissingOrder(null)} className="text-stone-400 hover:text-white font-bold" title="Cerrar">✕</button>
