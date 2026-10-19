@@ -26,16 +26,40 @@ test('isOffer: «Oferta» yes, «Tarifa» no, empty type only with dates', () =>
   assert.strictEqual(isOffer(item()), false);
 });
 
-test('offerWindow: delivery window wins; date_end 00:00 Madrid means the day before is the last', () => {
-  assert.deepStrictEqual(offerWindow(item({ date_start: '2026-05-13 22:00:00', date_end: '2026-05-21 22:00:00' })),
-    { start: '2026-05-14', end: '2026-05-21' });
+test('offerWindow: the ORDER window (rule validity) is the offer; delivery window is information', () => {
+  const w = (over) => { const r = offerWindow(item(over)); return [r.start, r.end, r.byOrder]; };
+  // date_end 00:00 Madrid means the day before is the last order day
+  assert.deepStrictEqual(w({ date_start: '2026-05-13 22:00:00', date_end: '2026-05-21 22:00:00' }), ['2026-05-14', '2026-05-21', true]);
   // Winter (UTC+1): 23:00Z
-  assert.deepStrictEqual(offerWindow(item({ date_start: '2026-11-01 23:00:00', date_end: '2026-11-09 23:00:00' })),
-    { start: '2026-11-02', end: '2026-11-09' });
-  assert.deepStrictEqual(offerWindow(item({
-    date_start: '2026-04-27 22:00:00', date_end: '2026-06-02 22:00:00',
-    x_studio_fecha_inicio_entrega: '2026-04-29', x_studio_fecha_final_entrega_1: '2026-06-04',
-  })), { start: '2026-04-29', end: '2026-06-04' });
+  assert.deepStrictEqual(w({ date_start: '2026-11-01 23:00:00', date_end: '2026-11-09 23:00:00' }), ['2026-11-02', '2026-11-09', true]);
+  // Both windows: start/end = orders, delivery kept apart
+  const both = offerWindow(item({
+    date_start: '2026-10-15 22:00:00', date_end: '2026-10-25 23:00:00',
+    x_studio_fecha_inicio_entrega: '2026-10-17', x_studio_fecha_final_entrega_1: '2026-10-27',
+  }));
+  assert.deepStrictEqual([both.start, both.end, both.deliveryStart, both.deliveryEnd], ['2026-10-16', '2026-10-25', '2026-10-17', '2026-10-27']);
+  // Only a delivery window: used as fallback
+  assert.deepStrictEqual(w({ x_studio_fecha_inicio_entrega: '2026-10-17', x_studio_fecha_final_entrega_1: '2026-10-27' }), ['2026-10-17', '2026-10-27', false]);
+});
+
+test('offerForLine: an order placed inside the ORDER window is on offer, whatever its delivery day', () => {
+  // Real case (Ecomora FRIPAT): orders 16/10–25/10, served 17/10–27/10
+  const offers = classifyOffers([item({
+    id: 1494, x_studio_tipo_de_precio: 'Oferta', date_start: '2026-10-15 22:00:00', date_end: '2026-10-25 23:00:00',
+    x_studio_fecha_inicio_entrega: '2026-10-17', x_studio_fecha_final_entrega_1: '2026-10-27',
+  })], TODAY);
+  const line = { id: 1, product_id: [3001, 'x'], productTmplId: 7302 };
+  assert.strictEqual(offerForLine(offers, {}, 21, line, '2026-10-25', '2026-10-27')?.id, 1494); // ordered on the last day
+  assert.strictEqual(offerForLine(offers, {}, 21, line, '2026-10-26', '2026-10-27'), null);      // ordered after: tariff
+  assert.strictEqual(offerForLine(offers, {}, 21, line, '2026-10-15', '2026-10-17'), null);      // ordered before it started
+  assert.strictEqual(offerForLine(offers, {}, 21, line, '2026-10-20', '2026-11-05')?.id, 1494);  // served later, still offer
+});
+
+test('diffOffers: snapshots from before the order/delivery split do not announce changes', () => {
+  const now = new Date('2026-10-19T08:00:00Z');
+  const offers = classifyOffers([item({ id: 1, x_studio_tipo_de_precio: 'Oferta', date_start: '2026-10-15 22:00:00', date_end: '2026-10-25 23:00:00' })], TODAY);
+  const old = { 1: { id: 1, status: 'vigente', start: '2026-10-17', end: '2026-10-27', product: offers[0].product, pricelist: offers[0].pricelist } };
+  assert.deepStrictEqual(diffOffers(old, offers, now), []);
 });
 
 test('classifyOffers: in force, upcoming (14 days), ended (7 days), the rest out', () => {
@@ -88,7 +112,7 @@ test('diffOffers: first run silent; new, changed, starts today and ended', () =>
   assert.deepStrictEqual(evNew.map(e => e.changes[0].type), ['OFERTA_NUEVA']);
   assert.strictEqual(evNew[0].kind, 'oferta');
   assert.strictEqual(evNew[0].priority, 'normal');
-  assert.match(evNew[0].summary, /del 20\/10 al 25\/10/);
+  assert.match(evNew[0].summary, /se sirve del 20\/10 al 25\/10/);  // no order dates: delivery window
 
   const moved = classifyOffers([item({ ...base, x_studio_fecha_final_entrega_1: '2026-10-28' })], TODAY);
   assert.deepStrictEqual(diffOffers(prev, moved, now).map(e => e.changes[0].type), ['OFERTA_CAMBIADA']);

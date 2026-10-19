@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Tag, AlertTriangle } from 'lucide-react';
-import { OFFER_STATUS, offerWindowText } from '../priority';
+import { OFFER_STATUS, offerWindowText, offerDeliveryText } from '../priority';
 
 const GROUPS = ['vigente', 'proxima', 'terminada'];
 
@@ -67,7 +67,22 @@ const OffersPanel = ({ open, offers, fetchedAt, onClose }) => {
                                                 <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${s.chip}`}>{s.short}</span>
                                             </div>
                                             <div className="mt-2 text-sm font-bold text-stone-800">🏷 {o.product}</div>
-                                            <div className="mt-1 text-xs font-semibold text-stone-600">Se sirve {offerWindowText(o)}</div>
+                                            {o.byOrder !== false ? (
+                                                <>
+                                                    <div className="mt-1 text-xs font-bold text-fuchsia-800"
+                                                        title="Fechas de PEDIDO: es con la fecha de pedido con la que Odoo pone el precio de oferta y factura">
+                                                        📅 Pedidos {offerWindowText(o)}
+                                                    </div>
+                                                    {(o.deliveryStart || o.deliveryEnd) && (
+                                                        <div className="text-[11px] font-semibold text-stone-500">🚚 Se sirve {offerDeliveryText(o)}</div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <div className="mt-1 text-xs font-semibold text-stone-600"
+                                                    title="La regla no tiene fechas de pedido en Odoo: solo ventana de entrega">
+                                                    🚚 Se sirve {offerWindowText(o)} · <span className="text-red-700">sin fechas de pedido en Odoo</span>
+                                                </div>
+                                            )}
                                             {o.comment && <div className="mt-1 text-xs italic text-stone-500">{o.comment}</div>}
                                             {o.material && (
                                                 <div className="mt-2 text-xs text-stone-700">

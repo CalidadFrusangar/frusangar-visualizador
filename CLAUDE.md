@@ -46,10 +46,12 @@ En Odoo, una acción automatizada genera un texto de WhatsApp al validar pedido/
 - `boxes.js`: estado de **declaración de cajas retornables** por albarán: se declara si sus lotes vienen de OF con cajas Euro Pool/IFCO (mismo criterio y catálogo que la app «Declarar cajas» de `Y:\Desarrollos\Agentes\PEDIR EN GO RAMP EUROPOOL`); lee `x_cajas_declaradas` / `x_cajas_declaracion` del albarán. Si un albarán con cajas sigue sin declarar `BOX_ALERT_MIN` después de validarse, el poller emite un aviso 🟠 alto (una vez por albarán, en `state.boxAlerts`).
 - `offers.js`: **ofertas de las tarifas** (`product.pricelist.item`), sin precios (en planta no se enseñan; ADR-0017 en la base de conocimiento).
   - **Qué es oferta**: «Tipo de precio» = Oferta (`x_studio_tipo_de_precio`, de Studio, solo existe en producción; se comprueba con `fields_get`). Si está vacío, una regla con `date_end` o ventana de entrega (`x_studio_fecha_inicio_entrega` → `x_studio_fecha_final_entrega_1`), marcada «sin marcar». Las «Tarifa» no son oferta.
-  - **Ventana**: manda la de entrega. Si no hay, la validez de la regla: `date_end` son las 00:00 de Madrid del día siguiente al último.
+  - **Ventana**: manda la **ventana de PEDIDO** (validez de la regla, `date_start` / `date_end`). Es la fecha con la que Odoo pone el precio y factura (usuario, 2026-10-19). `date_end` son las 00:00 de Madrid del día siguiente al último, y Odoo compara `date_end >= fecha del pedido`.
+    - La ventana de entrega (`deliveryStart` / `deliveryEnd`) solo informa y reparte el gasto de material.
+    - Sin validez en la regla se usa la de entrega (`byOrder: false`).
   - **Estados**: en vigor, próximas (≤14 días) y terminadas (últimos 7 días). Avisa de fechas incoherentes (fin anterior al inicio).
   - **Clientes**: los de la tarifa, incluidos los de tarifas que derivan de ella (rappels: «RAPPEL ECOMORA 4,50%» → Ecomora).
-  - **Marca en las líneas** (`tagOrders`): tarifa del pedido o su base, producto (plantilla) y día de entrega dentro de la ventana.
+  - **Marca en las líneas** (`tagOrders`): tarifa del pedido o su base, producto (plantilla) y **fecha del pedido** (`date_order`) dentro de la ventana de pedido.
   - **Lectura**: el poller las lee cada 5 min (`OFFERS_POLL_MS`) y por separado de los pedidos. Las instantáneas van en `state.offerSnapshots`.
   - **Avisos**: eventos `kind: 'oferta'` de prioridad normal (`OFERTA_NUEVA`, `OFERTA_CAMBIADA`, `OFERTA_EMPIEZA`), que van al panel y al push con el enlace `/?ofertas`. `OFERTA_TERMINADA` es info y no va al push.
   - **Rutas**: `/api/orders` devuelve `offers` y `line.offer` y hay una ruta `GET /api/offers`.

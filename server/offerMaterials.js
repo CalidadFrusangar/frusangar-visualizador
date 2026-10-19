@@ -5,7 +5,9 @@
 // core/ofertas.py + pipeline/extract_ofertas.py), que es el que decide cuándo y cuánto pedir.
 // Aquí no hay plazos de proveedor: solo si el material alcanza hasta el fin de la oferta.
 // - Venta estimada: lo vendido por día en ofertas anteriores (mismo producto y tarifa, último año);
-//   si no hubo, venta normal de 28 días × 2. Nunca menos de lo ya pedido.
+//   si no hubo, venta normal de 28 días × 2. Nunca menos de lo ya pedido. Todo por FECHA DE PEDIDO y
+//   ventana de pedido (validez de la regla: es con la que Odoo pone el precio y factura).
+// - El material se gasta en la ventana de entrega (cuando se fabrica y se sirve), si la regla la tiene.
 // - Lista de materiales: la que nombra al cliente o la tarifa («01CH3C CARREFOUR»); si no, la más
 //   usada en fabricación. En Odoo hay una por cliente (cada uno lleva su caja).
 // - Material: stock de Navalcarnero + compras en camino − gasto normal (fabricaciones de 28 días)
@@ -13,7 +15,7 @@
 // - Cajas y palés de pool sin stock ni consumo en Odoo (CHEP): sin dato, no cuentan como falta.
 const { executeKw } = require('./odoo');
 const { madridDateStr, addDays } = require('./dates');
-const { isOffer, availableFields } = require('./offers');
+const { isOffer, availableFields, offerWindow } = require('./offers');
 
 const NORMAL_DAYS = 28;
 const MULTIPLIER = Number(process.env.OFFER_MULTIPLIER) || 2;
@@ -77,7 +79,9 @@ async function chooseBom(product, names) {
 
 // offers: from offers.js (vigente / proxima); related: { pricelistId: [itself, derived...] }
 async function materialsForOffers(offers, related, today = madridDateStr(new Date())) {
-  const active = offers.filter(o => o.status !== 'terminada' && !o.badDates && (o.productId || o.productTmplId));
+  // An offer closed for orders still uses material while its deliveries are pending
+  const active = offers.filter(o => (o.status !== 'terminada' || (o.deliveryEnd && o.deliveryEnd >= today))
+    && !o.badDates && (o.productId || o.productTmplId));
   if (!active.length) return {};
   const u = await uoms();
   const pastFields = ['date_start', 'date_end', 'x_studio_fecha_inicio_entrega', 'x_studio_fecha_final_entrega_1',
@@ -104,8 +108,10 @@ async function materialsForOffers(offers, related, today = madridDateStr(new Dat
     let histUnits = 0, histDays = 0;
     for (const p of past) {
       if (!isOffer(p)) continue; // periods marked «Tarifa» are not offers (same as panel 9)
-      const ps = p.x_studio_fecha_inicio_entrega || (p.date_start ? madridDateStr(new Date(`${p.date_start.replace(' ', 'T')}Z`)) : null);
-      const pe = p.x_studio_fecha_final_entrega_1 || (p.date_end ? madridDateStr(new Date(new Date(`${p.date_end.replace(' ', 'T')}Z`).getTime() - 1000)) : null);
+      // Sales are counted by ORDER date, so the past offer is measured by its order window (validity)
+      const w = offerWindow(p);
+      const ps = w.start;
+      const pe = w.end;
       if (!ps || !pe || pe < ps || pe >= start || pe < addDays(today, -365)) continue;
       histUnits += sum([...(await soldByVariant(u, vmap, lists, ps, pe)).values()]);
       histDays += dayDiff(pe, ps) + 1;
@@ -115,10 +121,15 @@ async function materialsForOffers(offers, related, today = madridDateStr(new Dat
     if (histDays > 0) { rate = histUnits / histDays; method = 'historial de ofertas'; }
     else if (normal.size) { rate = sum([...normal.values()]) / NORMAL_DAYS * MULTIPLIER; method = `venta normal × ${MULTIPLIER}`; }
     else { rate = 0; method = 'sin datos'; }
+    // Sale estimated over the ORDER window (start..end); the material is spent when it is made and
+    // served, so it is spread over the DELIVERY window when the rule has one
     const total = Math.max(rate * days, ordered);
-    const from = start > today ? start : today;
-    const remainingDays = Math.max(0, dayDiff(end, from) + 1);
-    const pending = total * remainingDays / days;
+    const useStart = o.deliveryStart || start;
+    const useEnd = o.deliveryEnd || end;
+    const useDays = Math.max(1, dayDiff(useEnd, useStart) + 1);
+    const from = useStart > today ? useStart : today;
+    const remainingDays = Math.max(0, dayDiff(useEnd, from) + 1);
+    const pending = total * Math.min(1, remainingDays / useDays);
     const bom = await chooseBom(main, [o.pricelist, ...(o.customers || [])]);
     // Bultos per unit as this customer orders it (packaging on its recent order lines, last 90 days)
     const recent = await executeKw('sale.order.line', 'search_read', [[
@@ -127,7 +138,7 @@ async function materialsForOffers(offers, related, today = madridDateStr(new Dat
     ]], { fields: ['product_uom_qty', 'product_packaging_qty', 'product_uom'], limit: 200 });
     const units = sum(recent.map(l => convert(u, Number(l.product_uom_qty) || 0, l.product_uom[0], main.uom_id[0])));
     const bultosPerUnit = units > 0 ? sum(recent.map(l => Number(l.product_packaging_qty) || 0)) / units : null;
-    plans.push({ offer: o, main, bom, pending, from, end, remainingDays, method, total, ordered, bultosPerUnit });
+    plans.push({ offer: o, main, bom, pending, from, end: useEnd, remainingDays, method, total, ordered, bultosPerUnit });
   }
 
   // Components of every chosen BOM

@@ -31,14 +31,24 @@ async function availableFields() {
 const cleanName = (name) => (name || '').replace(/^\[[^\]]*\]\s*/, '');
 const many2one = (v) => (Array.isArray(v) ? { id: v[0], name: v[1] } : null);
 
-// Window of an offer as Madrid dates 'YYYY-MM-DD' (null = open). The delivery window wins; otherwise the
-// rule validity: date_start is 00:00 Madrid in UTC and date_end is 00:00 Madrid of the day AFTER the last.
+// Windows of an offer as Madrid dates 'YYYY-MM-DD' (null = open).
+// - ORDER window (what matters, usuario 2026-10-19): the rule validity date_start / date_end. Odoo applies the
+//   price by the ORDER date and bills with it. date_start is 00:00 Madrid in UTC; date_end is compared «>=» with
+//   the order datetime, and is usually 00:00 Madrid of the day AFTER the last one (hence −1 s).
+// - DELIVERY window (information only): x_studio_fecha_inicio_entrega → x_studio_fecha_final_entrega_1.
+// start / end = the order window; only when the rule has no validity dates, the delivery window.
 function offerWindow(item) {
-  const start = item.x_studio_fecha_inicio_entrega
-    || (item.date_start ? madridDateStr(fromOdooUtc(item.date_start)) : null);
-  const end = item.x_studio_fecha_final_entrega_1
-    || (item.date_end ? madridDateStr(new Date(fromOdooUtc(item.date_end).getTime() - 1000)) : null);
-  return { start: start || null, end: end || null };
+  const orderStart = item.date_start ? madridDateStr(fromOdooUtc(item.date_start)) : null;
+  const orderEnd = item.date_end ? madridDateStr(new Date(fromOdooUtc(item.date_end).getTime() - 1000)) : null;
+  const deliveryStart = item.x_studio_fecha_inicio_entrega || null;
+  const deliveryEnd = item.x_studio_fecha_final_entrega_1 || null;
+  const byOrder = !!(orderStart || orderEnd);
+  return {
+    start: byOrder ? orderStart : deliveryStart,
+    end: byOrder ? orderEnd : deliveryEnd,
+    byOrder,
+    orderStart, orderEnd, deliveryStart, deliveryEnd,
+  };
 }
 
 function isOffer(item) {
@@ -53,7 +63,7 @@ function classifyOffers(items, today, { pricelistNames = {}, customersByPricelis
   const offers = [];
   for (const item of items) {
     if (!isOffer(item)) continue;
-    const { start, end } = offerWindow(item);
+    const { start, end, byOrder, deliveryStart, deliveryEnd } = offerWindow(item);
     const badDates = !!(start && end && end < start);
     const issue = badDates ? 'Fechas incoherentes: el fin es anterior al inicio'
       : !start && !end ? 'Marcada como oferta pero sin fechas' : null;
@@ -73,8 +83,11 @@ function classifyOffers(items, today, { pricelistNames = {}, customersByPricelis
     offers.push({
       id: item.id,
       status,
-      start,
+      start,             // order window (or delivery window when the rule has no validity dates)
       end,
+      byOrder,           // false: start/end are the delivery window, the rule has no order dates
+      deliveryStart,     // information: when it is served
+      deliveryEnd,
       issue,
       badDates,
       unclassified: item.x_studio_tipo_de_precio !== 'Oferta',
@@ -175,16 +188,20 @@ async function fetchOffers(now = new Date()) {
 }
 
 // Pure: which offer applies to an order line. The order's pricelist, or the one it derives from
-// (e.g. «Distribución Logística 2,60%» → AHORRAMAS), the product, and the delivery day inside the window.
-function offerForLine(offers, chain, pricelistId, line, deliveryDay) {
+// (e.g. «Distribución Logística 2,60%» → AHORRAMAS), the product, and the ORDER day inside the order window
+// (Odoo prices and bills by the order date). Rules without validity dates fall back to the delivery day.
+function offerForLine(offers, chain, pricelistId, line, orderDay, deliveryDay = orderDay) {
   if (!pricelistId || !Array.isArray(line.product_id)) return null;
   const lists = [pricelistId];
   for (let i = 0; i < 3 && chain[lists[lists.length - 1]]; i++) lists.push(chain[lists[lists.length - 1]]);
-  return offers.find(o => lists.includes(o.pricelistId)
-    && ((o.productId && o.productId === line.product_id[0])
-      || (!o.productId && o.productTmplId && o.productTmplId === line.productTmplId))
-    && !o.badDates
-    && (!o.start || o.start <= deliveryDay) && (!o.end || o.end >= deliveryDay)) || null;
+  return offers.find(o => {
+    const day = o.byOrder === false ? deliveryDay : orderDay;
+    return lists.includes(o.pricelistId)
+      && ((o.productId && o.productId === line.product_id[0])
+        || (!o.productId && o.productTmplId && o.productTmplId === line.productTmplId))
+      && !o.badDates
+      && (!o.start || o.start <= day) && (!o.end || o.end >= day);
+  }) || null;
 }
 
 // Offer info for every product line of the orders (by line id), for the cards
@@ -193,10 +210,16 @@ function tagOrders(ordersByDay, offerData) {
   if (!offerData?.offers?.length) return tags;
   for (const list of Object.values(ordersByDay)) {
     for (const o of list) {
-      const day = madridDateStr(new Date(o.deliveryDate));
+      const deliveryDay = madridDateStr(new Date(o.deliveryDate));
+      const orderDay = o.date_order ? madridDateStr(fromOdooUtc(o.date_order)) : deliveryDay;
       for (const l of o.lines || []) {
-        const offer = offerForLine(offerData.offers, offerData.chain || {}, o.pricelist_id?.[0], l, day);
-        if (offer) tags[l.id] = { id: offer.id, start: offer.start, end: offer.end, comment: offer.comment };
+        const offer = offerForLine(offerData.offers, offerData.chain || {}, o.pricelist_id?.[0], l, orderDay, deliveryDay);
+        if (offer) {
+          tags[l.id] = {
+            id: offer.id, start: offer.start, end: offer.end, byOrder: offer.byOrder,
+            deliveryStart: offer.deliveryStart, deliveryEnd: offer.deliveryEnd, comment: offer.comment,
+          };
+        }
       }
     }
   }
@@ -206,17 +229,25 @@ function tagOrders(ordersByDay, offerData) {
 // --- Change detection (pure) ---
 
 const offerSnapshot = (o) => ({
-  id: o.id, status: o.status, start: o.start, end: o.end, product: o.product, pricelist: o.pricelist,
+  id: o.id, status: o.status, start: o.start, end: o.end, deliveryStart: o.deliveryStart, deliveryEnd: o.deliveryEnd,
+  product: o.product, pricelist: o.pricelist,
   customers: o.customers, comment: o.comment, writeDate: o.writeDate,
 });
 
 const fmtDay = (ymd) => (ymd ? `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}` : '');
 
-function windowText(o) {
-  if (o.start && o.end) return `del ${fmtDay(o.start)} al ${fmtDay(o.end)}`;
-  if (o.end) return `hasta el ${fmtDay(o.end)}`;
-  if (o.start) return `desde el ${fmtDay(o.start)}`;
+function range(start, end) {
+  if (start && end) return `del ${fmtDay(start)} al ${fmtDay(end)}`;
+  if (end) return `hasta el ${fmtDay(end)}`;
+  if (start) return `desde el ${fmtDay(start)}`;
   return 'sin fechas';
+}
+
+// «pedidos del 15/10 al 25/10 · se sirve del 17/10 al 27/10»: the order window is the offer
+function windowText(o) {
+  if (o.byOrder === false) return `se sirve ${range(o.start, o.end)}`;
+  const delivery = o.deliveryStart || o.deliveryEnd ? ` · se sirve ${range(o.deliveryStart, o.deliveryEnd)}` : '';
+  return `pedidos ${range(o.start, o.end)}${delivery}`;
 }
 
 const whoText = (o) => (o.customers?.length
@@ -257,7 +288,11 @@ function diffOffers(prev, offers, now = new Date()) {
       if (o.status !== 'terminada') events.push(offerEvent('OFERTA_NUEVA', o, now));
       continue;
     }
-    if (p.start !== o.start || p.end !== o.end || p.product !== o.product || p.pricelist !== o.pricelist) {
+    // Snapshots saved before 2026-10-19 have the delivery window in start/end and no delivery fields:
+    // take them as the new baseline instead of announcing every offer as changed
+    if (!('deliveryStart' in p)) continue;
+    if (p.start !== o.start || p.end !== o.end || p.deliveryStart !== o.deliveryStart || p.deliveryEnd !== o.deliveryEnd
+      || p.product !== o.product || p.pricelist !== o.pricelist) {
       events.push(offerEvent('OFERTA_CAMBIADA', o, now));
     } else if (p.status === 'proxima' && o.status === 'vigente') {
       events.push(offerEvent('OFERTA_EMPIEZA', o, now));

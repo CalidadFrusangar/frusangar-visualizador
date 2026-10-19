@@ -39,6 +39,9 @@ export const offerShortWindow = (o) => {
     return 'sin fechas';
 };
 
+// Delivery window of an offer (information; the offer itself is the ORDER window in start/end)
+export const offerDeliveryText = (o) => offerWindowText({ start: o.deliveryStart, end: o.deliveryEnd });
+
 export const offerWindowText = (o) => {
     if (o.start && o.end) return `del ${dayMonth(o.start)} al ${dayMonth(o.end)}`;
     if (o.end) return `hasta el ${dayMonth(o.end)}`;
