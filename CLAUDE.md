@@ -73,7 +73,7 @@ Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insi
 Lint: `motion` de framer-motion da falso positivo de `no-unused-vars` (ya pasaba en la v1).
 
 ## Pendientes
-- **Ofertas (2026-10-19)**: hechas en `v2` y probadas en local contra producción (solo lectura: 5 ofertas, 25 líneas marcadas, panel y etiquetas vistos en el navegador). **Falta el visto bueno del usuario para pasarlo a `main`.**
+- **Ofertas (2026-10-19)**: en producción (`main` = `3a750b5`, Render desplegado a las 13:24) con el visto bueno del usuario. Manda la ventana de pedido (Validity), la de entrega es informativa. El despliegue vació `state.json`: los móviles se vuelven a apuntar al abrir la app (`resyncPush`).
 - **v2 en producción desde el 15/10/2026** (`main` = `febc0b2`). Servicio Render `srv-d5rod2buibrs73cr9f00`. Render usa Node 24 (`engines` en `package.json`). El 16/10/2026 en Render solo había `APP_PIN`, `ODOO_*` y `VITE_API_URL`: faltaban las claves VAPID (cada despliegue generaba otras y los móviles dejaban de recibir push), `SESSION_SECRET` y `ODOO_ACK_NOTES`. Ese día se le dieron al usuario para añadirlas; confirmar con él cuáles puso. Rollback a la v1: commit `7d806d6`.
 - Probar push en móvil en https://frusangar-visualizador.onrender.com (ya no hace falta ngrok). iPhone requiere "Añadir a pantalla de inicio".
 - Antes de producción: el disco de Render free es efímero → decidir disco persistente o BD gratuita (Neon/Supabase) (las claves VAPID ya están en variables de entorno). Plan free: se duerme tras 15 min sin tráfico.
