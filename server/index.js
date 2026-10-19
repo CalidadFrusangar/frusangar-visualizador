@@ -11,6 +11,7 @@ const auth = require('./auth');
 const { fetchEmployees } = require('./employees');
 const odooNotes = require('./odooNotes');
 const { ODOO_URL } = require('./odoo');
+const { tagOrders } = require('./offers');
 
 const app = express();
 // Render (and ngrok) sit in front as a proxy: needed for req.secure and the client IP
@@ -56,11 +57,15 @@ app.get('/api/orders', async (req, res) => {
     recentByOrder.get(e.orderId).push(e);
   }
   const pending = new Set(poller.pendingOrderIds());
+  // Lines served with an offer (pricelist + product + delivery day), without prices
+  const offerData = poller.getOffers();
+  const offerTags = tagOrders(data.orders, offerData);
 
   const orders = Object.fromEntries(Object.entries(data.orders).map(([key, list]) => [
     key,
     list.map(o => ({
       ...o,
+      lines: (o.lines || []).map(l => (offerTags[l.id] ? { ...l, offer: offerTags[l.id] } : l)),
       recentEvents: recentByOrder.get(o.id) || [],
       changePending: pending.has(o.id),
     })),
@@ -69,11 +74,18 @@ app.get('/api/orders', async (req, res) => {
   res.json({
     days: data.days,
     orders,
+    offers: offerData ? { offers: offerData.offers, fetchedAt: offerData.fetchedAt } : null,
     stock: data.stock || null,
     fetchedAt: data.fetchedAt || new Date().toISOString(),
     error: poller.getLastError(),
     serverTime: new Date().toISOString(),
   });
+});
+
+// Pricelist offers (in force, upcoming, recently ended); null until the first read
+app.get('/api/offers', (req, res) => {
+  const offerData = poller.getOffers();
+  res.json(offerData ? { offers: offerData.offers, fetchedAt: offerData.fetchedAt } : null);
 });
 
 app.get('/api/events', (req, res) => {

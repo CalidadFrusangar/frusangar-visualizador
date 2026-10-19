@@ -38,6 +38,27 @@ export const enablePush = async (minPriority) => {
     return sub;
 };
 
+const toBase64Url = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+// Each time the app opens, a phone that already has notifications on tells the server again.
+// Render's disk is wiped on every deploy/restart (state.json, subscriptions included): without this the
+// phone kept showing «activado» but nothing arrived. If the server's VAPID key changed, subscribe again.
+export const resyncPush = async (minPriority) => {
+    if (!pushSupported() || Notification.permission !== 'granted') return false;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) return false;
+    const key = await getPushPublicKey();
+    const current = sub.options?.applicationServerKey ? toBase64Url(sub.options.applicationServerKey) : null;
+    if (current && current !== key.replace(/=+$/, '')) {
+        await sub.unsubscribe();
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+    }
+    await subscribePush(sub.toJSON(), minPriority);
+    return true;
+};
+
 export const disablePush = async () => {
     const sub = await getSubscription();
     if (!sub) return;

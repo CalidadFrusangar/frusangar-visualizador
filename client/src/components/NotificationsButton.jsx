@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bell, BellOff, BellRing, X } from 'lucide-react';
-import { pushSupported, isIos, isStandalone, getSubscription, enablePush, disablePush, sendTest } from '../push';
+import { pushSupported, isIos, isStandalone, getSubscription, enablePush, disablePush, sendTest, resyncPush } from '../push';
 
 const LEVELS = [
     { key: 'critico', label: 'Solo críticos', hint: 'Cambios en pedidos de hoy o con albarán ya validado' },
@@ -24,6 +24,8 @@ const NotificationsButton = () => {
 
     useEffect(() => {
         getSubscription().then(sub => setEnabled(!!sub)).catch(() => {});
+        // Re-register with the server (it forgets subscriptions on every Render deploy/restart)
+        resyncPush(readLevel()).catch(err => console.warn('No se pudo volver a activar el aviso:', err.message));
     }, []);
 
     const run = async (fn, okMessage) => {

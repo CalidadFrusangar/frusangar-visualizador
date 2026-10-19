@@ -6,7 +6,7 @@ const { madridDayRanges, toOdooUtc, fromOdooUtc } = require('./dates');
 const ORDER_TYPES = [1, 5];
 
 const ORDER_FIELDS = ['name', 'partner_id', 'expected_date', 'commitment_date', 'order_line',
-  'state', 'type_id', 'picking_ids', 'write_date', 'date_order'];
+  'state', 'type_id', 'picking_ids', 'write_date', 'date_order', 'pricelist_id'];
 const LINE_FIELDS = ['product_id', 'product_uom_qty', 'product_uom', 'name', 'order_id',
   'product_packaging_id', 'product_packaging_qty', 'palet_id', 'palet_qty', 'display_type', 'sequence'];
 const PICKING_FIELDS = ['name', 'state', 'picking_type_code', 'date_done', 'sale_id',
@@ -26,15 +26,17 @@ async function readInBatches(model, ids, fields) {
   return result;
 }
 
-// Product weight (field «Peso», kg per unit of the product's UoM), cached 10 min
+// Product weight (field «Peso», kg per unit of the product's UoM) and template (to match offers), cached 10 min
 const WEIGHT_TTL_MS = 10 * 60 * 1000;
-const weightCache = new Map(); // productId -> { weight, uomId, at }
+const weightCache = new Map(); // productId -> { weight, uomId, tmplId, at }
 
 async function productWeights(productIds, now = Date.now()) {
   const missing = productIds.filter(id => !(weightCache.get(id)?.at > now - WEIGHT_TTL_MS));
   if (missing.length) {
-    const products = await executeKw('product.product', 'read', [missing], { fields: ['weight', 'uom_id'], context: { active_test: false } });
-    for (const p of products) weightCache.set(p.id, { weight: Number(p.weight) || 0, uomId: p.uom_id?.[0], at: now });
+    const products = await executeKw('product.product', 'read', [missing], { fields: ['weight', 'uom_id', 'product_tmpl_id'], context: { active_test: false } });
+    for (const p of products) {
+      weightCache.set(p.id, { weight: Number(p.weight) || 0, uomId: p.uom_id?.[0], tmplId: p.product_tmpl_id?.[0], at: now });
+    }
   }
   return weightCache;
 }
@@ -98,7 +100,10 @@ async function fetchOrdersByDay(now = new Date()) {
 
   const productIds = [...new Set(lines.filter(l => Array.isArray(l.product_id)).map(l => l.product_id[0]))];
   const weights = productIds.length ? await productWeights(productIds) : new Map();
-  for (const l of lines) l.kg = lineKg(l, weights);
+  for (const l of lines) {
+    l.kg = lineKg(l, weights);
+    if (Array.isArray(l.product_id)) l.productTmplId = weights.get(l.product_id[0])?.tmplId || null;
+  }
 
   const linesByOrder = new Map();
   for (const l of lines) {

@@ -21,7 +21,8 @@ test('session token: valid, tampered, expired', () => {
   const [payload, sig] = token.split('.');
   const forged = Buffer.from(JSON.stringify({ iat: now + 1 })).toString('base64url');
   assert.strictEqual(verifyToken(`${forged}.${sig}`, now), null);
-  assert.strictEqual(verifyToken(`${payload}.x${sig.slice(1)}`, now), null);
+  // Change the first character for sure (it failed 1 in 64 runs when the signature already began with «x»)
+  assert.strictEqual(verifyToken(`${payload}.${sig[0] === 'x' ? 'y' : 'x'}${sig.slice(1)}`, now), null);
   assert.strictEqual(verifyToken(token, now + 181 * DAY), null);
   assert.strictEqual(verifyToken('basura', now), null);
   assert.strictEqual(verifyToken(null, now), null);

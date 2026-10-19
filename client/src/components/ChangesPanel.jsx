@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Bell, Archive, ArchiveRestore } from 'lucide-react';
-import { PRIORITY_STYLE, eventStyle, isNewOrderEvent, clockTime } from '../priority';
+import { PRIORITY_STYLE, eventStyle, isNewOrderEvent, isOfferEvent, clockTime } from '../priority';
 import OdooLink from './OdooLink';
 
 // Critical and important alerts can be marked as seen by a Navalcarnero employee
@@ -9,7 +9,7 @@ const isImportant = (e) => e.priority === 'critico' || e.priority === 'alto';
 // Critical / important alerts leave the list only once someone says they saw them
 const canArchiveDirectly = (e) => !needsAck(e) || !!e.ack;
 
-const ChangesPanel = ({ events, onSelectOrder, onAck, onArchive, className = '' }) => {
+const ChangesPanel = ({ events, onSelectOrder, onSelectOffers, onAck, onArchive, className = '' }) => {
     const [filter, setFilter] = useState('all');
     const active = events.filter(e => !e.archivedAt);
     const archived = events.filter(e => e.archivedAt);
@@ -67,14 +67,16 @@ const ChangesPanel = ({ events, onSelectOrder, onAck, onArchive, className = '' 
                 {visible.map(e => {
                     const style = eventStyle(e);
                     const isNew = isNewOrderEvent(e);
+                    const isOffer = isOfferEvent(e);
+                    const open = () => (isOffer ? onSelectOffers() : onSelectOrder(e.orderId, e.orderName));
                     return (
                         <div
                             key={e.id}
                             role="button"
                             tabIndex={0}
-                            title="Ver el pedido en el visualizador"
-                            onClick={() => onSelectOrder(e.orderId, e.orderName)}
-                            onKeyDown={(ev) => ev.key === 'Enter' && onSelectOrder(e.orderId, e.orderName)}
+                            title={isOffer ? 'Ver las ofertas' : 'Ver el pedido en el visualizador'}
+                            onClick={open}
+                            onKeyDown={(ev) => ev.key === 'Enter' && open()}
                             className={`w-full text-left rounded-lg border p-2.5 cursor-pointer transition-transform active:scale-[0.98] hover:shadow-md ${style.soft} ${e.archivedAt ? 'opacity-70' : ''}`}
                         >
                             <div className="flex items-center justify-between gap-2 mb-1">
@@ -134,8 +136,8 @@ const ChangesPanel = ({ events, onSelectOrder, onAck, onArchive, className = '' 
                                     </button>
                                 ))}
                                 <span className="ml-auto flex items-center gap-1.5">
-                                    <span className="text-[10px] font-bold opacity-70">Ver pedido →</span>
-                                    {!e.test && <OdooLink orderId={e.orderId} />}
+                                    <span className="text-[10px] font-bold opacity-70">{isOffer ? 'Ver ofertas →' : 'Ver pedido →'}</span>
+                                    {!e.test && !isOffer && <OdooLink orderId={e.orderId} />}
                                 </span>
                             </div>
                         </div>

@@ -29,6 +29,15 @@ const vapid = loadVapidKeys();
 webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:calidad@frusangar.com', vapid.publicKey, vapid.privateKey);
 
 function payloadFor(event) {
+  if (event.kind === 'oferta') {
+    return JSON.stringify({
+      title: `🏷 ${event.changes[0].type === 'OFERTA_NUEVA' ? 'OFERTA NUEVA' : 'OFERTA'} · ${event.partner}`,
+      body: event.changes.map(c => c.text).join('\n'),
+      tag: `oferta-${event.offerId}`,
+      priority: event.priority,
+      url: '/?ofertas',
+    });
+  }
   return JSON.stringify({
     title: isNewOrder(event)
       ? `${event.priority === 'critico' ? '🔴 ' : ''}🆕 PEDIDO NUEVO · ${event.orderName} · ${event.dayLabel}`

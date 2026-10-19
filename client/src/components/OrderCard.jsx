@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Package, Box, AlertTriangle, Loader2, Sparkles } from 'lucide-react';
-import { PRIORITY_STYLE, NEW_ORDER_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo, isNewOrderEvent } from '../priority';
+import { PRIORITY_STYLE, NEW_ORDER_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo, isNewOrderEvent, offerWindowText, offerShortWindow } from '../priority';
 import OdooLink from './OdooLink';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
@@ -53,6 +53,8 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
     const productLines = order.lines?.filter(isProductLine) || [];
     const totalBultos = productLines.reduce((sum, l) => sum + (l.product_packaging_qty || 0), 0);
     const totalUnits = productLines.reduce((sum, l) => sum + (l.product_uom_qty || 0), 0);
+    // Lines served with a pricelist offer (tagged by the server, no prices)
+    const offerLines = productLines.filter(l => l.offer);
 
     const orderRef = order.name?.split(' ')[0] || order.name;
     const customerName = order.partner_id ? order.partner_id[1] : 'Cliente desconocido';
@@ -133,6 +135,14 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
                                 <span title={boxTitle(order.boxes)} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${box.className}`}>
                                     <span>{box.icon}</span>
                                     {order.boxes.status === 'sin_declarar' && order.boxes.boxes.length ? `${order.boxes.boxes.join(' / ')} ${box.label}` : box.label}
+                                </span>
+                            )}
+                            {offerLines.length > 0 && !cancelled && (
+                                <span
+                                    title={offerLines.map(l => `${(l.product_id[1].split('] ')[1] || l.product_id[1])} · se sirve ${offerWindowText(l.offer)}`).join('\n')}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-fuchsia-600 text-white border-fuchsia-700"
+                                >
+                                    🏷 Oferta{offerLines.length > 1 ? ` · ${offerLines.length} líneas` : ''}
                                 </span>
                             )}
                             {order.changePending && (
@@ -246,8 +256,9 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
                                             const change = byLine.get(line.id);
 
                                             return (
-                                                <tr key={line.id} className={`hover:bg-frusangar-light/20 transition-colors group/row ${change ? LINE_ROW_STYLE[change.type] || '' : ''}`}>
-                                                    <td className="py-3 px-5 pl-6 align-top">
+                                                <tr key={line.id} className={`hover:bg-frusangar-light/20 transition-colors group/row ${change ? LINE_ROW_STYLE[change.type] || '' : line.offer ? 'bg-fuchsia-50/40' : ''}`}>
+                                                    {/* Offer lines: fuchsia bar on the left, like a highlighted row */}
+                                                    <td className={`py-3 px-5 pl-6 align-top ${line.offer ? 'shadow-[inset_4px_0_0_#c026d3]' : ''}`}>
                                                         <div className="font-bold text-stone-800 text-xs mb-1 group-hover/row:text-frusangar-dark transition-colors tracking-tight">
                                                             {productName.split('] ')[1] || productName}
                                                             {change?.type === 'LINEA_AÑADIDA' && <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black uppercase">Nuevo</span>}
@@ -255,6 +266,14 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
                                                         <div className="text-[11px] text-stone-500 font-mono font-medium">
                                                             Ref: {productRef}
                                                         </div>
+                                                        {line.offer && (
+                                                            <div
+                                                                className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-600 text-white text-[10px] font-bold whitespace-nowrap"
+                                                                title={[`Oferta: se sirve ${offerWindowText(line.offer)}`, line.offer.comment].filter(Boolean).join('\n')}
+                                                            >
+                                                                🏷 Oferta · {offerShortWindow(line.offer)}
+                                                            </div>
+                                                        )}
                                                         {change && change.before && (
                                                             <div className={`mt-1 text-[11px] font-bold ${change.type === 'AUMENTO' ? 'text-emerald-700' : 'text-orange-700'}`}>
                                                                 Antes: {beforeAfter(change)}

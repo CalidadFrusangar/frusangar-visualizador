@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical } from 'lucide-react';
+import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical, Tag } from 'lucide-react';
 import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent, archiveEvents } from './api';
 import { stockByDay } from './stock';
 import { unlockAudio, beep } from './push';
@@ -12,6 +12,7 @@ import Login from './components/Login';
 import DemoAlerts from './components/DemoAlerts';
 import EmployeePicker from './components/EmployeePicker';
 import OdooLink from './components/OdooLink';
+import OffersPanel from './components/OffersPanel';
 import { demoEvent, DEMO_COUNT } from './demoAlerts';
 import logo from './assets/logo.png';
 
@@ -53,6 +54,9 @@ const wantsDemo = () => new URLSearchParams(window.location.search).has('probar'
 
 const initialFocus = () => Number(new URLSearchParams(window.location.search).get('order')) || null;
 
+// ?ofertas opens the offers panel (link of the offer push notifications)
+const wantsOffers = () => new URLSearchParams(window.location.search).has('ofertas');
+
 function Dashboard() {
   const [data, setData] = useState(null);
   const [events, setEvents] = useState([]);
@@ -68,6 +72,7 @@ function Dashboard() {
   const [soundOn, setSoundOn] = useState(() => readFlag('sound'));
   const [voiceOn, setVoiceOn] = useState(() => readFlag('voice'));
   const [dayFilter, setDayFilter] = useState(readDayFilter);
+  const [offersOpen, setOffersOpen] = useState(wantsOffers);
 
   const seenEvents = useRef(null);
   const soundRef = useRef(soundOn);
@@ -280,6 +285,7 @@ function Dashboard() {
   const undeclaredBoxes = DAYS.flatMap(d => ordersOf(d.key))
     .filter(o => o.state !== 'cancel' && o.boxes?.status === 'sin_declarar').length;
   const pendingToday = ordersOf('today').filter(o => o.state !== 'cancel' && o.pickingStatus !== 'validado').length;
+  const offersInForce = (data?.offers?.offers || []).filter(o => o.status === 'vigente').length;
   const importantEvents = events.filter(e => !e.archivedAt && (e.priority === 'critico' || e.priority === 'alto') && Date.now() - new Date(e.ts) < 3 * 3600_000).length;
 
   return (
@@ -306,6 +312,15 @@ function Dashboard() {
                 📦 {undeclaredBoxes} sin declarar
               </span>
             )}
+            <button
+              onClick={() => setOffersOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold bg-fuchsia-50 border-fuchsia-200 text-fuchsia-800 hover:bg-fuchsia-100 active:scale-95"
+              title="Ofertas de las tarifas: en vigor, próximas y terminadas"
+            >
+              <Tag size={14} />
+              <span className="hidden sm:inline">Ofertas</span>
+              {offersInForce > 0 && <span className="px-1.5 rounded-full bg-fuchsia-600 text-white text-[10px]">{offersInForce}</span>}
+            </button>
             <span className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-stone-50 rounded-lg border border-stone-200/50 text-xs font-medium text-stone-500">
               Hoy por hacer: <span className="font-bold text-frusangar-orange">{pendingToday}</span>
             </span>
@@ -410,6 +425,7 @@ function Dashboard() {
         <ChangesPanel
           events={[...testEvents, ...events]}
           onSelectOrder={selectOrder}
+          onSelectOffers={() => setOffersOpen(true)}
           onAck={requestAck}
           onArchive={archive}
           className={`${tab === 'events' ? 'flex' : 'hidden'} lg:flex lg:col-span-2 xl:col-span-4 2xl:col-span-1 2xl:sticky 2xl:top-28 2xl:max-h-[calc(100vh-8rem)]`}
@@ -427,6 +443,13 @@ function Dashboard() {
           <button onClick={() => setMissingOrder(null)} className="text-stone-400 hover:text-white font-bold" title="Cerrar">✕</button>
         </div>
       )}
+
+      <OffersPanel
+        open={offersOpen}
+        offers={data ? (data.offers?.offers || null) : null}
+        fetchedAt={data?.offers?.fetchedAt}
+        onClose={() => setOffersOpen(false)}
+      />
 
       <EmployeePicker event={ackTarget?.event} onPick={confirmAck} onCancel={() => setAckTarget(null)} />
 

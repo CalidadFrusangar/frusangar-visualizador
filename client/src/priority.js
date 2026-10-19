@@ -14,7 +14,37 @@ export const NEW_ORDER_STYLE = {
 
 export const isNewOrderEvent = (e) => !!e?.changes?.some(c => c.type === 'NUEVO_PEDIDO');
 
-export const eventStyle = (e) => (isNewOrderEvent(e) ? NEW_ORDER_STYLE : PRIORITY_STYLE[e.priority]);
+// Pricelist offers (not order changes): their own colour in the alert list
+export const OFFER_STYLE = {
+    label: 'Oferta', chip: 'bg-fuchsia-600 text-white', soft: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-900', ring: 'ring-fuchsia-400', dot: 'bg-fuchsia-500',
+};
+
+export const isOfferEvent = (e) => e?.kind === 'oferta';
+
+export const eventStyle = (e) => (isOfferEvent(e) ? OFFER_STYLE : isNewOrderEvent(e) ? NEW_ORDER_STYLE : PRIORITY_STYLE[e.priority]);
+
+export const OFFER_STATUS = {
+    vigente: { label: 'En vigor', short: 'En vigor', dot: 'bg-fuchsia-500', chip: 'bg-fuchsia-600 text-white', card: 'bg-white border-fuchsia-200' },
+    proxima: { label: 'Próximas', short: 'Próxima', dot: 'bg-sky-500', chip: 'bg-sky-100 text-sky-800', card: 'bg-white border-stone-200' },
+    terminada: { label: 'Terminadas (última semana)', short: 'Terminada', dot: 'bg-stone-400', chip: 'bg-stone-100 text-stone-500', card: 'bg-stone-50 border-stone-200 opacity-80' },
+};
+
+const dayMonth = (ymd) => (ymd ? `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}` : '');
+
+// Compact form for tight spots (order lines): «17/10 → 27/10»
+export const offerShortWindow = (o) => {
+    if (o.start && o.end) return `${dayMonth(o.start)} → ${dayMonth(o.end)}`;
+    if (o.end) return `hasta ${dayMonth(o.end)}`;
+    if (o.start) return `desde ${dayMonth(o.start)}`;
+    return 'sin fechas';
+};
+
+export const offerWindowText = (o) => {
+    if (o.start && o.end) return `del ${dayMonth(o.start)} al ${dayMonth(o.end)}`;
+    if (o.end) return `hasta el ${dayMonth(o.end)}`;
+    if (o.start) return `desde el ${dayMonth(o.start)}`;
+    return 'sin fechas';
+};
 
 export const PICKING_STYLE = {
     validado: { label: 'Albarán hecho', icon: '✔', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
