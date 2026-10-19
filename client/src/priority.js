@@ -39,6 +39,11 @@ export const offerShortWindow = (o) => {
     return 'sin fechas';
 };
 
+// Order window as Odoo shows it in «Validity» (its end is 00:00 of that day, so the last order day is `end`)
+export const offerValidityText = (o) => offerWindowText({ start: o.start, end: o.validityEnd || o.end });
+
+export const dayMonthOf = (ymd) => (ymd ? `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}` : '');
+
 // Delivery window of an offer (information; the offer itself is the ORDER window in start/end)
 export const offerDeliveryText = (o) => offerWindowText({ start: o.deliveryStart, end: o.deliveryEnd });
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Package, Box, AlertTriangle, Loader2, Sparkles } from 'lucide-react';
-import { PRIORITY_STYLE, NEW_ORDER_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo, isNewOrderEvent, offerWindowText, offerShortWindow, offerDeliveryText } from '../priority';
+import { PRIORITY_STYLE, NEW_ORDER_STYLE, PICKING_STYLE, BOX_STYLE, boxTitle, maxPriority, timeAgo, isNewOrderEvent, offerWindowText, offerShortWindow, offerDeliveryText, offerValidityText, dayMonthOf } from '../priority';
 import OdooLink from './OdooLink';
 
 const isProductLine = (l) => !l.display_type && Array.isArray(l.product_id) && l.product_id.length > 0;
@@ -32,7 +32,8 @@ function lineChanges(order) {
 // «pedidos del 16/10 al 25/10 · se sirve del 17/10 al 27/10»: the order window is what Odoo prices and bills by
 const offerTitle = (o) => (o.byOrder === false
     ? `se sirve ${offerWindowText(o)} (sin fechas de pedido en Odoo)`
-    : `pedidos ${offerWindowText(o)}${o.deliveryStart || o.deliveryEnd ? ` · se sirve ${offerDeliveryText(o)}` : ''}`);
+    : `pedidos ${offerValidityText(o)}${o.validityEnd ? ` (último día de pedido ${dayMonthOf(o.end)})` : ''}`
+      + `${o.deliveryStart || o.deliveryEnd ? ` · se sirve ${offerDeliveryText(o)}` : ''}`);
 
 const LINE_ROW_STYLE = {
     LINEA_AÑADIDA: 'bg-emerald-50',
@@ -276,7 +277,7 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
                                                                 className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-600 text-white text-[10px] font-bold whitespace-nowrap"
                                                                 title={[`Oferta: ${offerTitle(line.offer)}`, line.offer.comment].filter(Boolean).join('\n')}
                                                             >
-                                                                🏷 Oferta · {line.offer.byOrder === false ? 'se sirve' : 'pedidos'} {offerShortWindow(line.offer)}
+                                                                🏷 Oferta · {line.offer.byOrder === false ? 'se sirve' : 'pedidos'} {offerShortWindow({ ...line.offer, end: line.offer.validityEnd || line.offer.end })}
                                                             </div>
                                                         )}
                                                         {change && change.before && (

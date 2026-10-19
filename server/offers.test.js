@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { classifyOffers, offerWindow, isOffer, offerForLine, diffOffers, snapshotOf, pricelistChain } = require('./offers');
+const { classifyOffers, offerWindow, isOffer, offerForLine, diffOffers, snapshotOf, pricelistChain, windowText } = require('./offers');
 
 const TODAY = '2026-10-19';
 
@@ -40,6 +40,19 @@ test('offerWindow: the ORDER window (rule validity) is the offer; delivery windo
   assert.deepStrictEqual([both.start, both.end, both.deliveryStart, both.deliveryEnd], ['2026-10-16', '2026-10-25', '2026-10-17', '2026-10-27']);
   // Only a delivery window: used as fallback
   assert.deepStrictEqual(w({ x_studio_fecha_inicio_entrega: '2026-10-17', x_studio_fecha_final_entrega_1: '2026-10-27' }), ['2026-10-17', '2026-10-27', false]);
+});
+
+test('Validity as Odoo shows it: Carrefour 14/10 → 26/10 (00:00) means the last order day is 25/10', () => {
+  // Real rule 1485: date_start 13/10 22:00Z (14/10 00:00 CEST), date_end 25/10 23:00Z (26/10 00:00 CET, after the DST change)
+  const [o] = classifyOffers([item({
+    id: 1485, x_studio_tipo_de_precio: 'Oferta', date_start: '2026-10-13 22:00:00', date_end: '2026-10-25 23:00:00',
+    x_studio_fecha_inicio_entrega: '2026-10-15', x_studio_fecha_final_entrega_1: '2026-10-27',
+  })], TODAY);
+  assert.deepStrictEqual([o.start, o.end, o.validityEnd], ['2026-10-14', '2026-10-25', '2026-10-26']);
+  assert.strictEqual(windowText(o), 'pedidos del 14/10 al 26/10 (último día de pedido 25/10) · se sirve del 15/10 al 27/10');
+  const line = { id: 1, product_id: [3823, 'x'], productTmplId: 7302 };
+  assert.strictEqual(offerForLine([o], {}, 21, line, '2026-10-25')?.id, 1485);
+  assert.strictEqual(offerForLine([o], {}, 21, line, '2026-10-26'), null); // Odoo: tariff price that day
 });
 
 test('offerForLine: an order placed inside the ORDER window is on offer, whatever its delivery day', () => {

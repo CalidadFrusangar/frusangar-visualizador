@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Tag, AlertTriangle } from 'lucide-react';
-import { OFFER_STATUS, offerWindowText, offerDeliveryText } from '../priority';
+import { OFFER_STATUS, offerWindowText, offerDeliveryText, offerValidityText, dayMonthOf } from '../priority';
 
 const GROUPS = ['vigente', 'proxima', 'terminada'];
 
@@ -71,8 +71,13 @@ const OffersPanel = ({ open, offers, fetchedAt, onClose }) => {
                                                 <>
                                                     <div className="mt-1 text-xs font-bold text-fuchsia-800"
                                                         title="Fechas de PEDIDO: es con la fecha de pedido con la que Odoo pone el precio de oferta y factura">
-                                                        📅 Pedidos {offerWindowText(o)}
+                                                        📅 Pedidos {offerValidityText(o)}
                                                     </div>
+                                                    {o.validityEnd && (
+                                                        <div className="text-[10px] font-semibold text-amber-700">
+                                                            ⚠ Odoo corta el {dayMonthOf(o.validityEnd)} a las 00:00: último día de pedido el {dayMonthOf(o.end)}
+                                                        </div>
+                                                    )}
                                                     {(o.deliveryStart || o.deliveryEnd) && (
                                                         <div className="text-[11px] font-semibold text-stone-500">🚚 Se sirve {offerDeliveryText(o)}</div>
                                                     )}

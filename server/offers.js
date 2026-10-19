@@ -43,10 +43,14 @@ function offerWindow(item) {
   const deliveryStart = item.x_studio_fecha_inicio_entrega || null;
   const deliveryEnd = item.x_studio_fecha_final_entrega_1 || null;
   const byOrder = !!(orderStart || orderEnd);
+  // As Odoo shows it in «Validity»: the date of date_end. When it is 00:00 Madrid, that day is NOT included
+  // (checked in pruebas 2026-10-19: an order at 00:30 of that day already gets the tariff price).
+  const validityEnd = item.date_end ? madridDateStr(fromOdooUtc(item.date_end)) : null;
   return {
     start: byOrder ? orderStart : deliveryStart,
     end: byOrder ? orderEnd : deliveryEnd,
     byOrder,
+    validityEnd: validityEnd && validityEnd !== orderEnd ? validityEnd : null, // only when it differs from the last day
     orderStart, orderEnd, deliveryStart, deliveryEnd,
   };
 }
@@ -63,7 +67,7 @@ function classifyOffers(items, today, { pricelistNames = {}, customersByPricelis
   const offers = [];
   for (const item of items) {
     if (!isOffer(item)) continue;
-    const { start, end, byOrder, deliveryStart, deliveryEnd } = offerWindow(item);
+    const { start, end, byOrder, validityEnd, deliveryStart, deliveryEnd } = offerWindow(item);
     const badDates = !!(start && end && end < start);
     const issue = badDates ? 'Fechas incoherentes: el fin es anterior al inicio'
       : !start && !end ? 'Marcada como oferta pero sin fechas' : null;
@@ -86,6 +90,7 @@ function classifyOffers(items, today, { pricelistNames = {}, customersByPricelis
       start,             // order window (or delivery window when the rule has no validity dates)
       end,
       byOrder,           // false: start/end are the delivery window, the rule has no order dates
+      validityEnd,       // end date as Odoo shows it in «Validity» (00:00 of that day: not included), if ≠ end
       deliveryStart,     // information: when it is served
       deliveryEnd,
       issue,
@@ -216,7 +221,7 @@ function tagOrders(ordersByDay, offerData) {
         const offer = offerForLine(offerData.offers, offerData.chain || {}, o.pricelist_id?.[0], l, orderDay, deliveryDay);
         if (offer) {
           tags[l.id] = {
-            id: offer.id, start: offer.start, end: offer.end, byOrder: offer.byOrder,
+            id: offer.id, start: offer.start, end: offer.end, byOrder: offer.byOrder, validityEnd: offer.validityEnd,
             deliveryStart: offer.deliveryStart, deliveryEnd: offer.deliveryEnd, comment: offer.comment,
           };
         }
@@ -243,11 +248,15 @@ function range(start, end) {
   return 'sin fechas';
 }
 
-// «pedidos del 15/10 al 25/10 · se sirve del 17/10 al 27/10»: the order window is the offer
+// «pedidos del 14/10 al 26/10 (último día 25/10) · se sirve del 15/10 al 27/10»: the order window (Validity,
+// as Odoo shows it) is the offer
 function windowText(o) {
   if (o.byOrder === false) return `se sirve ${range(o.start, o.end)}`;
+  const shown = o.validityEnd
+    ? `${range(o.start, o.validityEnd)} (último día de pedido ${fmtDay(o.end)})`
+    : range(o.start, o.end);
   const delivery = o.deliveryStart || o.deliveryEnd ? ` · se sirve ${range(o.deliveryStart, o.deliveryEnd)}` : '';
-  return `pedidos ${range(o.start, o.end)}${delivery}`;
+  return `pedidos ${shown}${delivery}`;
 }
 
 const whoText = (o) => (o.customers?.length
