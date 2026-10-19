@@ -30,10 +30,17 @@ async function boxesByPicking(pickings) {
     const lotIds = [...new Set(moveLines.map(l => l.lot_id[0]))];
     const productions = lotIds.length ? await executeKw('mrp.production', 'search_read',
       [[['lot_producing_id', 'in', lotIds], ['state', '=', 'done']]], { fields: ['lot_producing_id'] }) : [];
-    // Cancelled box lines count too: the box model is the one planned in the MO
-    const raws = productions.length ? await executeKw('stock.move', 'search_read',
+    const allRaws = productions.length ? await executeKw('stock.move', 'search_read',
       [[['raw_material_production_id', 'in', productions.map(p => p.id)], ['product_id', 'in', Object.keys(RETURNABLE_BOXES).map(Number)]]],
-      { fields: ['raw_material_production_id', 'product_id'] }) : [];
+      { fields: ['raw_material_production_id', 'product_id', 'state'] }) : [];
+    // A cancelled returnable box line still counts (the box planned in the MO), unless the MO
+    // consumed another box instead (e.g. Frusangar cardboard 09CA*): then the IFCO was swapped out
+    const onlyCancelled = [...new Set(allRaws.map(r => r.raw_material_production_id[0]))]
+      .filter(id => allRaws.every(r => r.raw_material_production_id[0] !== id || r.state === 'cancel'));
+    const swapped = onlyCancelled.length ? new Set((await executeKw('stock.move', 'search_read',
+      [[['raw_material_production_id', 'in', onlyCancelled], ['state', '=', 'done'], ['product_id.default_code', '=like', '09CA%']]],
+      { fields: ['raw_material_production_id'] })).map(m => m.raw_material_production_id[0])) : new Set();
+    const raws = allRaws.filter(r => !swapped.has(r.raw_material_production_id[0]));
 
     const boxesByProduction = new Map();
     for (const r of raws) {
