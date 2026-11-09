@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical, Tag } from 'lucide-react';
-import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent, archiveEvents } from './api';
+import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical, Tag, Truck, ClipboardList } from 'lucide-react';
+import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent, archiveEvents, fetchTrucks } from './api';
 import { stockByDay } from './stock';
 import { unlockAudio, beep } from './push';
 import { speak, stopSpeaking, describeForSpeech, speechSupported } from './speech';
@@ -13,6 +13,7 @@ import DemoAlerts from './components/DemoAlerts';
 import EmployeePicker from './components/EmployeePicker';
 import OdooLink from './components/OdooLink';
 import OffersPanel from './components/OffersPanel';
+import TrucksCalendar from './components/TrucksCalendar';
 import { demoEvent, DEMO_COUNT } from './demoAlerts';
 import logo from './assets/logo.png';
 
@@ -57,6 +58,16 @@ const initialFocus = () => Number(new URLSearchParams(window.location.search).ge
 // ?ofertas opens the offers panel (link of the offer push notifications)
 const wantsOffers = () => new URLSearchParams(window.location.search).has('ofertas');
 
+// Pestaña «Camiones» (calendario de llegadas de patata): ?camiones la abre (tele de planta); se recuerda
+const TRUCKS_MS = 60_000;
+const readView = () => {
+  if (new URLSearchParams(window.location.search).has('camiones')) return 'camiones';
+  try { return localStorage.getItem('view') === 'camiones' ? 'camiones' : 'pedidos'; } catch { return 'pedidos'; }
+};
+const saveView = (v) => {
+  try { localStorage.setItem('view', v); } catch { /* ignore */ }
+};
+
 function Dashboard() {
   const [data, setData] = useState(null);
   const [events, setEvents] = useState([]);
@@ -73,6 +84,11 @@ function Dashboard() {
   const [voiceOn, setVoiceOn] = useState(() => readFlag('voice'));
   const [dayFilter, setDayFilter] = useState(readDayFilter);
   const [offersOpen, setOffersOpen] = useState(wantsOffers);
+  const [view, setView] = useState(readView);
+  const [trucks, setTrucks] = useState(null);
+  const [trucksError, setTrucksError] = useState(null);
+  const [trucksLoading, setTrucksLoading] = useState(false);
+  const [tabBeforeTrucks, setTabBeforeTrucks] = useState('today');
 
   const seenEvents = useRef(null);
   const soundRef = useRef(soundOn);
@@ -273,12 +289,42 @@ function Dashboard() {
     setEvents(all => all.map(e => changed.get(e.id) || e));
   }, []);
 
+  // Camiones: se leen al abrir la pestaña y cada minuto mientras está abierta
+  const loadTrucks = useCallback(async () => {
+    setTrucksLoading(true);
+    try {
+      setTrucks(await fetchTrucks());
+      setTrucksError(null);
+    } catch (err) {
+      if (err.response?.status !== 401) setTrucksError(err.response?.data?.error || 'No se pudieron leer los camiones de Odoo');
+    } finally {
+      setTrucksLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (view !== 'camiones') return undefined;
+    loadTrucks();
+    const id = setInterval(loadTrucks, TRUCKS_MS);
+    return () => clearInterval(id);
+  }, [view, loadTrucks]);
+  const chooseView = (v) => {
+    setView(v);
+    saveView(v);
+    if (v === 'camiones') {
+      setTabBeforeTrucks(t => (tab === 'trucks' ? t : tab));
+      setTab('trucks');
+    } else if (tab === 'trucks') {
+      setTab(tabBeforeTrucks);
+    }
+  };
+  const showTrucks = view === 'camiones';
+
   const ordersOf = (key) => data?.orders?.[key] || [];
   const dayOf = (key) => data?.days?.find(d => d.key === key);
   const dateOf = (key) => dayOf(key)?.date;
   // Server titles follow working days (Sunday skipped): «Mañana», «Lunes»…
   const titleOf = (key) => dayOf(key)?.title || DAYS.find(d => d.key === key).title;
-  const tabs = [...DAYS.map(d => ({ key: d.key, label: shortTitle(titleOf(d.key)) })), { key: 'events', label: 'Avisos' }];
+  const tabs = [...DAYS.map(d => ({ key: d.key, label: shortTitle(titleOf(d.key)) })), { key: 'events', label: 'Avisos' }, { key: 'trucks', label: 'Camiones' }];
   const dayFilters = DAY_FILTERS.map(f => ({ key: f.key, label: f.key === 'all' ? 'Todos' : `Solo ${titleOf(f.key).toLowerCase()}` }));
   // Almacén 4 stock covers today first, then the next columns
   const availableByDay = stockByDay(DAYS.map(d => d.key), ordersOf, data?.stock);
@@ -366,12 +412,17 @@ function Dashboard() {
         {/* Mobile tabs */}
         <nav className="lg:hidden flex border-t border-stone-100 bg-white">
           {tabs.map(t => {
-            const count = t.key === 'events' ? importantEvents : ordersOf(t.key).filter(o => o.state !== 'cancel').length;
+            const count = t.key === 'events' ? importantEvents : t.key === 'trucks' ? 0 : ordersOf(t.key).filter(o => o.state !== 'cancel').length;
+            const active = t.key === 'trucks' ? showTrucks : !showTrucks && tab === t.key;
             return (
               <button
                 key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex-1 py-2.5 text-sm font-bold border-b-2 transition-colors ${tab === t.key ? 'border-frusangar-green text-frusangar-dark' : 'border-transparent text-stone-400'}`}
+                onClick={() => {
+                  if (t.key === 'trucks') { chooseView('camiones'); return; }
+                  if (showTrucks) { setView('pedidos'); saveView('pedidos'); }
+                  setTab(t.key);
+                }}
+                className={`flex-1 py-2.5 text-sm font-bold border-b-2 transition-colors ${active ? 'border-frusangar-green text-frusangar-dark' : 'border-transparent text-stone-400'}`}
               >
                 {t.label}
                 {count > 0 && (
@@ -383,9 +434,20 @@ function Dashboard() {
         </nav>
       </header>
 
-      {/* Day filter (desktop / TV) */}
+      {/* Pestañas Pedidos / Camiones y filtro de días (ordenador / tele) */}
       <div className="hidden lg:flex items-center gap-2 px-8 pt-5">
-        {dayFilters.map(f => (
+        <div className="flex p-1 mr-3 rounded-xl bg-stone-100 border border-stone-200/70">
+          {[{ key: 'pedidos', label: 'Pedidos', icon: <ClipboardList size={16} /> }, { key: 'camiones', label: 'Camiones', icon: <Truck size={16} /> }].map(({ key, label, icon }) => (
+            <button
+              key={key}
+              onClick={() => chooseView(key)}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${view === key ? 'bg-white text-frusangar-dark shadow-sm' : 'text-stone-500 hover:text-frusangar-dark'}`}
+            >
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+        {!showTrucks && dayFilters.map(f => (
           <button
             key={f.key}
             onClick={() => chooseDayFilter(f.key)}
@@ -403,8 +465,17 @@ function Dashboard() {
         </div>
       )}
 
+      {showTrucks && (
+        <TrucksCalendar
+          data={trucks}
+          error={trucksError}
+          loading={trucksLoading}
+          className="flex px-4 sm:px-6 lg:px-8 py-6 lg:pt-5 lg:pb-8"
+        />
+      )}
+
       {/* Main: 3 day columns + changes panel */}
-      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:pt-5 lg:pb-8 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[1fr_1fr_1fr_0.85fr_300px] gap-8 2xl:gap-6 items-start">
+      <main className={`${showTrucks ? 'hidden' : 'grid'} px-4 sm:px-6 lg:px-8 py-6 lg:pt-5 lg:pb-8 grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[1fr_1fr_1fr_0.85fr_300px] gap-8 2xl:gap-6 items-start`}>
         {DAYS.map(d => (
           <DayColumn
             key={d.key}

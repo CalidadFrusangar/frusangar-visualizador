@@ -12,6 +12,7 @@ const { fetchEmployees } = require('./employees');
 const odooNotes = require('./odooNotes');
 const { ODOO_URL } = require('./odoo');
 const { tagOrders } = require('./offers');
+const { fetchTrucks } = require('./trucks');
 
 const app = express();
 // Render (and ngrok) sit in front as a proxy: needed for req.secure and the client IP
@@ -86,6 +87,16 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/offers', (req, res) => {
   const offerData = poller.getOffers();
   res.json(offerData ? { offers: offerData.offers, fetchedAt: offerData.fetchedAt } : null);
+});
+
+// Calendario «Camiones»: patata granel pendiente de llegar (llegada = carga + 2 días), solo lectura
+app.get('/api/trucks', async (req, res) => {
+  try {
+    res.json(await fetchTrucks());
+  } catch (err) {
+    console.error('Trucks error:', err.message);
+    res.status(502).json({ error: 'No se pudieron leer los camiones pendientes de Odoo' });
+  }
 });
 
 app.get('/api/events', (req, res) => {

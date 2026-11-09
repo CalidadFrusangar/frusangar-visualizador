@@ -51,3 +51,6 @@ export const ackEvent = async (eventId, employeeId) =>
 // Archive (archived = true) or restore alerts on every device; returns the changed events
 export const archiveEvents = async (ids, archived = true) =>
     (await api.post("/events/archive", { ids, archived })).data;
+
+// Calendario «Camiones»: patata granel pendiente de llegar (llegada = carga + 2 días)
+export const fetchTrucks = async () => (await api.get('/trucks')).data;

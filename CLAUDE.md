@@ -72,6 +72,14 @@ Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insi
 
 Lint: `motion` de framer-motion da falso positivo de `no-unused-vars` (ya pasaba en la v1).
 
+## Pestaña «Camiones» (2026-11-09, solo en local)
+Calendario de **llegadas de camiones de patata granel** para la tele de planta (usuario: «solo el calendario y como otra pestaña»).
+- `server/trucks.js` + `GET /api/trucks`: lee de Odoo (solo lectura) las compras confirmadas de 01GRBA/01GRRO con el camión sin recibir del todo, el mismo dominio que «Compras pendientes de recibir» de Odoo. **Llegada = fecha de carga + 2 días** (el camión tarda entre 1,5 y 2; el usuario prefiere pintar solo la llegada con 2 días). Caché de 2 min (`TRUCKS_CACHE_MS`). Tests en `trucks.test.js`.
+- `client/src/components/TrucksCalendar.jsx`: semanas de lunes a domingo desde esta semana hasta la última llegada (de 2 a 6 semanas), con hoy resaltado y una tarjeta por camión (variedad, proveedor, transportista y «cargó …»). Arriba salen los retrasados (llegada ya pasada) y abajo los que no tienen fecha de carga.
+- Navegación: en ordenador y tele, botones «Pedidos | Camiones» junto al filtro de días; en el móvil, la pestaña «Camiones». `?camiones` abre la pestaña directamente (para la tele) y la elección se recuerda en `localStorage` (`view`). Mientras está abierta, se refresca cada minuto.
+- No hay avisos push ni eventos de camiones.
+- El mismo cálculo está en el PDF «Camiones pendientes» de Odoo (`Y:\Desarrollos\13. Modulos personalizados odoo generales\compras_gerencia\desplegar_informe_camiones.py`). Si cambia el criterio, hay que cambiarlo en los dos.
+
 ## Pendientes
 - **Ofertas (2026-10-19)**: en producción (`main` = `3a750b5`, Render desplegado a las 13:24) con el visto bueno del usuario. Manda la ventana de pedido (Validity), la de entrega es informativa. El despliegue vació `state.json`: los móviles se vuelven a apuntar al abrir la app (`resyncPush`).
 - **v2 en producción desde el 15/10/2026** (`main` = `febc0b2`). Servicio Render `srv-d5rod2buibrs73cr9f00`. Render usa Node 24 (`engines` en `package.json`). El 16/10/2026 en Render solo había `APP_PIN`, `ODOO_*` y `VITE_API_URL`: faltaban las claves VAPID (cada despliegue generaba otras y los móviles dejaban de recibir push), `SESSION_SECRET` y `ODOO_ACK_NOTES`. Ese día se le dieron al usuario para añadirlas; confirmar con él cuáles puso. Rollback a la v1: commit `7d806d6`.
