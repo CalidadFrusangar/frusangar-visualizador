@@ -72,7 +72,7 @@ Cliente (`client/src`): `App.jsx` (entrada real), `DayColumn`, `OrderCard` (insi
 
 Lint: `motion` de framer-motion da falso positivo de `no-unused-vars` (ya pasaba en la v1).
 
-## Pestaña «Camiones» (2026-11-09, solo en local)
+## Pestaña «Camiones» (2026-11-09, en producción: `main` = `e6e29ae`)
 Calendario de **llegadas de camiones de patata granel** para la tele de planta (usuario: «solo el calendario y como otra pestaña»).
 - `server/trucks.js` + `GET /api/trucks`: lee de Odoo (solo lectura) las compras confirmadas de 01GRBA/01GRRO con el camión sin recibir del todo, el mismo dominio que «Compras pendientes de recibir» de Odoo. **Llegada = fecha de carga + 2 días** (el camión tarda entre 1,5 y 2; el usuario prefiere pintar solo la llegada con 2 días). Caché de 2 min (`TRUCKS_CACHE_MS`). Tests en `trucks.test.js`.
 - `client/src/components/TrucksCalendar.jsx`: semanas de lunes a domingo desde esta semana hasta la última llegada (de 2 a 6 semanas), con hoy resaltado y una tarjeta por camión (variedad, proveedor, transportista y «cargó …»). Arriba salen los retrasados (llegada ya pasada) y abajo los que no tienen fecha de carga.
