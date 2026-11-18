@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical, Tag, Truck, ClipboardList } from 'lucide-react';
+import { RefreshCw, AlertCircle, Volume2, VolumeX, Megaphone, FlaskConical, Tag, Truck, ClipboardList, Search, X } from 'lucide-react';
+import { filterOrders } from './search';
 import { fetchOrders, fetchEvents, getSession, onUnauthorized, ackEvent, archiveEvents, fetchTrucks } from './api';
 import { stockByDay } from './stock';
 import { unlockAudio, beep } from './push';
@@ -68,6 +69,43 @@ const saveView = (v) => {
   try { localStorage.setItem('view', v); } catch { /* ignore */ }
 };
 
+// Caja de búsqueda: cliente, producto, referencia o n.º de pedido. Esc la vacía.
+function SearchBox({ value, onChange, count = null, className = '' }) {
+  return (
+    <div className={`flex items-center gap-3 ${className}`}>
+      <label className="relative flex-1 flex items-center">
+        <Search size={18} className="absolute left-3 text-stone-400 pointer-events-none" />
+        <input
+          type="text"
+          enterKeyHint="search"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') onChange(''); }}
+          placeholder="Buscar cliente, producto o n.º de pedido"
+          aria-label="Buscar cliente, producto o número de pedido"
+          className={`w-full pl-10 pr-10 py-2 rounded-full border bg-white text-sm font-medium text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-frusangar-green/25 ${value ? 'border-frusangar-green' : 'border-stone-200 focus:border-frusangar-green'}`}
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="absolute right-2 p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100"
+            title="Quitar búsqueda"
+            aria-label="Quitar búsqueda"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </label>
+      {count != null && (
+        <span className={`shrink-0 text-xs font-bold ${count ? 'text-frusangar-dark' : 'text-red-600'}`}>
+          {count === 1 ? '1 pedido' : `${count} pedidos`}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Dashboard() {
   const [data, setData] = useState(null);
   const [events, setEvents] = useState([]);
@@ -83,6 +121,7 @@ function Dashboard() {
   const [soundOn, setSoundOn] = useState(() => readFlag('sound'));
   const [voiceOn, setVoiceOn] = useState(() => readFlag('voice'));
   const [dayFilter, setDayFilter] = useState(readDayFilter);
+  const [search, setSearch] = useState('');
   const [offersOpen, setOffersOpen] = useState(wantsOffers);
   const [view, setView] = useState(readView);
   const [trucks, setTrucks] = useState(null);
@@ -240,6 +279,7 @@ function Dashboard() {
       return;
     }
     setMissingOrder(null);
+    setSearch(''); // el pedido del aviso podría estar oculto por la búsqueda
     setFocusOrderId(orderId);
     setFocusSeq(n => n + 1);
     setTab(day.key);
@@ -320,6 +360,10 @@ function Dashboard() {
   const showTrucks = view === 'camiones';
 
   const ordersOf = (key) => data?.orders?.[key] || [];
+  // Lo que se ve en las columnas (buscador); los contadores de cabecera y el stock usan todo
+  const searching = search.trim().length > 0;
+  const shown = Object.fromEntries(DAYS.map(d => [d.key, filterOrders(ordersOf(d.key), search)]));
+  const shownCount = DAYS.reduce((n, d) => n + shown[d.key].filter(o => o.state !== 'cancel').length, 0);
   const dayOf = (key) => data?.days?.find(d => d.key === key);
   const dateOf = (key) => dayOf(key)?.date;
   // Server titles follow working days (Sunday skipped): «Mañana», «Lunes»…
@@ -337,7 +381,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-frusangar-light text-stone-800 font-sans selection:bg-frusangar-green selection:text-white">
       {/* Header */}
-      <header className="bg-white/95 backdrop-blur-md shadow-sm sticky top-0 z-30 border-b border-stone-200/60">
+      <header className="bg-white shadow-sm sticky top-0 z-30 border-b border-stone-200/60">
         <div className="px-4 sm:px-6 lg:px-8 h-16 lg:h-20 flex justify-between items-center gap-3">
           <div className="flex items-center min-w-0">
             <div className="mr-4 flex-shrink-0">
@@ -412,7 +456,7 @@ function Dashboard() {
         {/* Mobile tabs */}
         <nav className="lg:hidden flex border-t border-stone-100 bg-white">
           {tabs.map(t => {
-            const count = t.key === 'events' ? importantEvents : t.key === 'trucks' ? 0 : ordersOf(t.key).filter(o => o.state !== 'cancel').length;
+            const count = t.key === 'events' ? importantEvents : t.key === 'trucks' ? 0 : shown[t.key].filter(o => o.state !== 'cancel').length;
             const active = t.key === 'trucks' ? showTrucks : !showTrucks && tab === t.key;
             return (
               <button
@@ -432,6 +476,13 @@ function Dashboard() {
             );
           })}
         </nav>
+
+        {/* Buscador en el móvil */}
+        {!showTrucks && (
+          <div className="lg:hidden px-4 py-2 border-t border-stone-100 bg-white">
+            <SearchBox value={search} onChange={setSearch} count={searching ? shownCount : null} />
+          </div>
+        )}
       </header>
 
       {/* Pestañas Pedidos / Camiones y filtro de días (ordenador / tele) */}
@@ -456,6 +507,9 @@ function Dashboard() {
             {f.label}
           </button>
         ))}
+        {!showTrucks && (
+          <SearchBox value={search} onChange={setSearch} count={searching ? shownCount : null} className="ml-auto w-full max-w-md" />
+        )}
       </div>
 
       {error && (
@@ -482,7 +536,8 @@ function Dashboard() {
             title={titleOf(d.key)}
             date={dateOf(d.key)}
             dateTo={dayOf(d.key)?.dateTo}
-            orders={ordersOf(d.key)}
+            orders={shown[d.key]}
+            searching={searching}
             available={availableByDay?.[d.key]}
             byDate={!!d.byDate}
             accent={d.accent}

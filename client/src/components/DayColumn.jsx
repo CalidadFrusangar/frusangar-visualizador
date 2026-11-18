@@ -50,16 +50,19 @@ const OrderList = ({ list, wide, focusOrderId, focusSeq }) => (
     </div>
 );
 
-const DayColumn = ({ title, date, dateTo, orders, accent, loading, focusOrderId, focusSeq = 0, wide = false, available = null, byDate = false, className = '' }) => {
+const DayColumn = ({ title, date, dateTo, orders, accent, loading, focusOrderId, focusSeq = 0, wide = false, available = null, byDate = false, searching = false, className = '' }) => {
     const active = orders.filter(o => o.state !== 'cancel');
+    // Buscando un producto: bultos, palés y la vista Productos cuentan solo las líneas encontradas
+    const onlyMatched = (list) => list.map(o => (o.searchLineIds ? { ...o, lines: o.lines.filter(l => o.searchLineIds.has(l.id)) } : o));
+    const counted = onlyMatched(active);
     const done = active.filter(o => o.pickingStatus === 'validado').length;
     const progress = active.length ? Math.round((done / active.length) * 100) : 0;
     const withBoxes = active.filter(o => ['declarada', 'sin_declarar'].includes(o.boxes?.status));
     const undeclared = withBoxes.filter(o => o.boxes.status === 'sin_declarar').length;
-    const totalBultos = sumLines(active, 'product_packaging_qty');
-    const pendingBultos = sumLines(active.filter(o => o.pickingStatus !== 'validado'), 'product_packaging_qty');
-    const totalPalets = sumLines(active, 'palet_qty');
-    const short = shortageSummary(active, available);
+    const totalBultos = sumLines(counted, 'product_packaging_qty');
+    const pendingBultos = sumLines(counted.filter(o => o.pickingStatus !== 'validado'), 'product_packaging_qty');
+    const totalPalets = sumLines(counted, 'palet_qty');
+    const short = shortageSummary(counted, available);
     const [view, setView] = useState('orders');
 
     // Opening an order from an alert shows the order list, not the product summary
@@ -132,10 +135,10 @@ const DayColumn = ({ title, date, dateTo, orders, accent, loading, focusOrderId,
                         {[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-xl shadow-sm border border-stone-100"></div>)}
                     </div>
                 ) : view === 'products' && orders.length > 0 ? (
-                    <ProductSummary orders={orders} available={available} compact={!wide} />
+                    <ProductSummary orders={onlyMatched(orders)} available={available} compact={!wide} />
                 ) : orders.length === 0 ? (
                     <div className="bg-white/50 p-10 rounded-xl text-center border-dashed border-2 border-stone-200">
-                        <p className="text-stone-500 font-medium">No hay pedidos para este día.</p>
+                        <p className="text-stone-500 font-medium">{searching ? 'Ningún pedido de este día coincide con la búsqueda.' : 'No hay pedidos para este día.'}</p>
                     </div>
                 ) : byDate ? (
                     // «Próximos días»: one group per delivery date

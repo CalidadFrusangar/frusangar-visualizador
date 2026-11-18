@@ -43,7 +43,8 @@ const LINE_ROW_STYLE = {
 
 const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => {
     const [userToggled, setUserToggled] = useState(null);
-    const expanded = userToggled ?? focused;
+    // Encontrado por producto en el buscador: se abre para ver la línea resaltada
+    const expanded = userToggled ?? (focused || !!order.searchLineIds);
     const ref = useRef(null);
 
     // focusSeq changes on every click on an alert, so the same order scrolls into view again
@@ -85,11 +86,10 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
     return (
         <motion.div
             ref={ref}
-            layout
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className={`group bg-white rounded-xl shadow-card hover:shadow-card-hover border border-stone-100/80 transition-all duration-300 overflow-hidden mb-4
+            className={`group bg-white rounded-xl shadow-card hover:shadow-card-hover border border-stone-100/80 transition-shadow duration-300 overflow-hidden mb-4
                 ${changeStyle ? `ring-2 ${changeStyle.ring}` : expanded ? 'ring-2 ring-frusangar-green/20' : ''}
                 ${focused ? 'ring-4 ring-frusangar-green' : ''}
                 ${cancelled ? 'opacity-60 hover:opacity-100' : dimmed ? 'bg-stone-50/60' : ''}`}
@@ -262,7 +262,7 @@ const OrderCard = ({ order, dimmed = false, focused = false, focusSeq = 0 }) => 
                                             const change = byLine.get(line.id);
 
                                             return (
-                                                <tr key={line.id} className={`hover:bg-frusangar-light/20 transition-colors group/row ${change ? LINE_ROW_STYLE[change.type] || '' : line.offer ? 'bg-fuchsia-50/40' : ''}`}>
+                                                <tr key={line.id} className={`hover:bg-frusangar-light/20 transition-colors group/row ${order.searchLineIds?.has(line.id) ? 'bg-amber-100/70' : change ? LINE_ROW_STYLE[change.type] || '' : line.offer ? 'bg-fuchsia-50/40' : ''}`}>
                                                     {/* Offer lines: fuchsia bar on the left, like a highlighted row */}
                                                     <td className={`py-3 px-5 pl-6 align-top ${line.offer ? 'shadow-[inset_4px_0_0_#c026d3]' : ''}`}>
                                                         <div className="font-bold text-stone-800 text-xs mb-1 group-hover/row:text-frusangar-dark transition-colors tracking-tight">
