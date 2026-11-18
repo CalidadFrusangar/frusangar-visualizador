@@ -15,6 +15,12 @@ const RETURNABLE_BOXES = {
   4045: 'IFCO Black 6424',
 };
 
+// Customers shipped in cardboard: never anything to declare, even if the MO of the lot had a
+// returnable box line (01RE1C plans IFCO and Frusangar cardboard; both lines can end cancelled,
+// e.g. Novarandis FRU/FRUSAL//14035, OF 41912, 18/11/2026). Carrefour: cardboard since 24/09/2026.
+const CARDBOARD_CUSTOMERS = [/carrefour/i, /novarandis/i];
+const isCardboardCustomer = (name) => CARDBOARD_CUSTOMERS.some(re => re.test(name || ''));
+
 // Done pickings rarely change; write_date in the key refreshes them when they do
 const cache = new Map();
 
@@ -130,4 +136,4 @@ function pruneAlerted(alerted, now = new Date()) {
   for (const [id, ts] of Object.entries(alerted)) if (now - new Date(ts) > 7 * 24 * 3600_000) delete alerted[id];
 }
 
-module.exports = { boxesByPicking, boxStatus, boxAlertEvents, pruneAlerted, RETURNABLE_BOXES };
+module.exports = { boxesByPicking, boxStatus, boxAlertEvents, pruneAlerted, isCardboardCustomer, RETURNABLE_BOXES };

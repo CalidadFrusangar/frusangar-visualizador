@@ -53,3 +53,12 @@ test('boxAlertEvents: alerts once, only after the delay, never for cancelled ord
   assert.strictEqual(boxAlertEvents({ today: [order] }, alerted, new Date('2026-10-15T11:00:00Z'), 2 * H).length, 0);
   assert.strictEqual(boxAlertEvents({ today: [{ ...order, state: 'cancel' }] }, {}, new Date('2026-10-15T11:00:00Z'), 2 * H).length, 0);
 });
+
+test('cardboard customers (Carrefour, Novarandis) never have boxes to declare', () => {
+  const { isCardboardCustomer } = require('./boxes');
+  assert.ok(isCardboardCustomer('NOVARANDIS, S.L.'));
+  assert.ok(isCardboardCustomer('NOVARANDIS, S.L., recepcion.novarandis@e-leclerc.es'));
+  assert.ok(isCardboardCustomer('Carrefour - Getafe'));
+  assert.ok(!isCardboardCustomer('TORIODIS, S.L.'));
+  assert.ok(!isCardboardCustomer(undefined));
+});

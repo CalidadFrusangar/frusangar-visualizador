@@ -1,5 +1,5 @@
 const { executeKw } = require('./odoo');
-const { boxesByPicking, boxStatus } = require('./boxes');
+const { boxesByPicking, boxStatus, isCardboardCustomer } = require('./boxes');
 const { madridDayRanges, toOdooUtc, fromOdooUtc } = require('./dates');
 
 // 1 = Navalcarnero, 5 = Mercamadrid Interno (produced in Navalcarnero)
@@ -131,7 +131,7 @@ async function fetchOrdersByDay(now = new Date()) {
       lines: orderLines,
       pickings: orderPickings,
       pickingStatus: pickingStatus(orderPickings),
-      boxes: boxStatus(orderPickings, boxesById),
+      boxes: isCardboardCustomer(o.partner_id?.[1]) ? null : boxStatus(orderPickings, boxesById),
     });
   }
 
